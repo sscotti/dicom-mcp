@@ -1,0 +1,1 @@
+findscu -v -S -k QueryRetrieveLevel=STUDY -k StudyInstanceUID=1.2.276.0.7230010.3.1.2.2831156000.1.1499097860.742568 -k PatientName -k StudyDescription -k SeriesDescription -aet FAKE_AET -aec ORTHANC localhost 4242
