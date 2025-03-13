@@ -58,69 +58,69 @@ async def dicom_lifespan(server: FastMCP) -> AsyncIterator[DicomContext]:
 def register_resources(mcp: FastMCP) -> None:
     """Register all resource handlers with the MCP server."""
     
-    @mcp.resource("dicom://config")
-    def get_dicom_config(*, ctx: Context) -> str:
-        """Get the current DICOM server configuration."""
-        dicom_ctx = ctx.lifespan_context
-        config = dicom_ctx.config
+    # @mcp.resource("dicom://config")
+    # def get_dicom_config() -> str:
+    #     """Get the current DICOM server configuration."""
+    #     dicom_ctx = ctx.lifespan_context
+    #     config = dicom_ctx.config
         
-        return json.dumps({
-            "host": config.host,
-            "port": config.port,
-            "ae_title": config.ae_title
-        })
+    #     return json.dumps({
+    #         "host": config.host,
+    #         "port": config.port,
+    #         "ae_title": config.ae_title
+    #     })
 
-    @mcp.resource("patient://{patient_id}")
-    def get_patient(patient_id: str, *, ctx: Context) -> str:
-        """Get patient information by Patient ID."""
-        dicom_ctx = ctx.lifespan_context
-        client = dicom_ctx.client
+    # @mcp.resource("patient://{patient_id}")
+    # def get_patient(patient_id: str) -> str:
+    #     """Get patient information by Patient ID."""
+    #     dicom_ctx = ctx.lifespan_context
+    #     client = dicom_ctx.client
         
-        try:
-            # Get the specific patient
-            result = client.get_entity_by_id("patient", patient_id)
-            return json.dumps(result)
-        except Exception as e:
-            raise Exception(f"Error querying patient: {str(e)}")
+    #     try:
+    #         # Get the specific patient
+    #         result = client.get_entity_by_id("patient", patient_id)
+    #         return json.dumps(result)
+    #     except Exception as e:
+    #         raise Exception(f"Error querying patient: {str(e)}")
 
-    @mcp.resource("study://{study_instance_uid}")
-    def get_study(study_instance_uid: str, *, ctx: Context) -> str:
-        """Get study information by Study Instance UID."""
-        dicom_ctx = ctx.lifespan_context
-        client = dicom_ctx.client
+    # @mcp.resource("study://{study_instance_uid}")
+    # def get_study(study_instance_uid: str) -> str:
+    #     """Get study information by Study Instance UID."""
+    #     dicom_ctx = ctx.lifespan_context
+    #     client = dicom_ctx.client
         
-        try:
-            # Get the specific study
-            result = client.get_entity_by_id("study", study_instance_uid)
-            return json.dumps(result)
-        except Exception as e:
-            raise Exception(f"Error querying study: {str(e)}")
+    #     try:
+    #         # Get the specific study
+    #         result = client.get_entity_by_id("study", study_instance_uid)
+    #         return json.dumps(result)
+    #     except Exception as e:
+    #         raise Exception(f"Error querying study: {str(e)}")
 
-    @mcp.resource("series://{series_instance_uid}")
-    def get_series(series_instance_uid: str, *, ctx: Context) -> str:
-        """Get series information by Series Instance UID."""
-        dicom_ctx = ctx.lifespan_context
-        client = dicom_ctx.client
+    # @mcp.resource("series://{series_instance_uid}")
+    # def get_series(series_instance_uid: str) -> str:
+    #     """Get series information by Series Instance UID."""
+    #     dicom_ctx = ctx.lifespan_context
+    #     client = dicom_ctx.client
         
-        try:
-            # Get the specific series
-            result = client.get_entity_by_id("series", series_instance_uid)
-            return json.dumps(result)
-        except Exception as e:
-            raise Exception(f"Error querying series: {str(e)}")
+    #     try:
+    #         # Get the specific series
+    #         result = client.get_entity_by_id("series", series_instance_uid)
+    #         return json.dumps(result)
+    #     except Exception as e:
+    #         raise Exception(f"Error querying series: {str(e)}")
 
-    @mcp.resource("instance://{sop_instance_uid}")
-    def get_instance(sop_instance_uid: str, *, ctx: Context) -> str:
-        """Get instance information by SOP Instance UID."""
-        dicom_ctx = ctx.lifespan_context
-        client = dicom_ctx.client
+    # @mcp.resource("instance://{sop_instance_uid}")
+    # def get_instance(sop_instance_uid: str,) -> str:
+    #     """Get instance information by SOP Instance UID."""
+    #     dicom_ctx = ctx.lifespan_context
+    #     client = dicom_ctx.client
         
-        try:
-            # Get the specific instance
-            result = client.get_entity_by_id("instance", sop_instance_uid)
-            return json.dumps(result)
-        except Exception as e:
-            raise Exception(f"Error querying instance: {str(e)}")
+    #     try:
+    #         # Get the specific instance
+    #         result = client.get_entity_by_id("instance", sop_instance_uid)
+    #         return json.dumps(result)
+    #     except Exception as e:
+    #         raise Exception(f"Error querying instance: {str(e)}")
 
 
 # Tools
@@ -133,7 +133,7 @@ def register_tools(mcp: FastMCP) -> None:
         host: str, 
         port: int, 
         ae_title: str = "MCPSCU", 
-        ctx: Context = None
+        ctx: Context = None,
     ) -> str:
         """Configure the DICOM server connection."""
         dicom_ctx = ctx.lifespan_context
@@ -257,7 +257,7 @@ def register_tools(mcp: FastMCP) -> None:
         attribute_preset: str = "standard", 
         additional_attributes: List[str] = None,
         exclude_attributes: List[str] = None, 
-        ctx: Context = None
+        ctx: Context = None 
     ) -> List[Dict[str, Any]]:
         """Query instances matching the specified criteria within a series."""
         dicom_ctx = ctx.lifespan_context
