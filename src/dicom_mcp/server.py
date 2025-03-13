@@ -66,18 +66,10 @@ def create_dicom_mcp_server(name: str = "DICOM MCP") -> FastMCP:
         config_manager = dicom_ctx.config_manager
         
         # Get current server name
-        current_server = config_manager.current_server
-        
-        # Get all servers with is_current flag
-        result_servers = {}
-        for name, server in config_manager.servers.items():
-            server_copy = server.copy()
-            server_copy['is_current'] = (name == current_server)
-            result_servers[name] = server_copy
         
         return {
-            "current_server": current_server,
-            "servers": result_servers
+            "current_server": config_manager.current_server,
+            "servers": list(config_manager.servers.keys())
         }
     
     @mcp.tool()
@@ -105,8 +97,7 @@ def create_dicom_mcp_server(name: str = "DICOM MCP") -> FastMCP:
         
         return {
             "success": True,
-            "message": f"Switched to DICOM server: {server_name}",
-            "server": server_config
+            "message": f"Switched to DICOM server: {server_name}"
         }
 
     @mcp.tool()
@@ -308,29 +299,6 @@ query_studies(
 To view available attribute presets:
 ```
 get_attribute_presets()
-```
-
-## Server Configuration
-The server uses a YAML configuration file to define available DICOM servers.
-By default it looks for `dicom_servers.yaml` in the current directory, 
-or you can set the DICOM_MCP_CONFIG environment variable to specify a different location.
-
-Example configuration:
-```yaml
-servers:
-  clinical-pacs:
-    host: pacs.hospital.org
-    port: 11112
-    ae_title: CLINICALAE
-    description: Main clinical PACS
-  
-  research-pacs:
-    host: research-pacs.hospital.org
-    port: 4242
-    ae_title: RESEARCH
-    description: Research PACS with de-identified data
-
-current_server: clinical-pacs
 ```
 """
     

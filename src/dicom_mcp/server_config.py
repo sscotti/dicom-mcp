@@ -57,16 +57,11 @@ class ServerConfigManager:
             raise RuntimeError(f"Error loading configuration: {e}")
     
     def get_current_server(self) -> Optional[Dict]:
-        """Get the currently selected server configuration.
+        """Get the currently selected server configuration."""
+        if self.current_server:
+            return self.servers.get(self.current_server)
+        return None
         
-        Returns:
-            The current server configuration or None if not set
-        """
-        if not self.current_server or self.current_server not in self.servers:
-            return None
-        
-        return self.servers[self.current_server]
-    
     def set_current_server(self, server_name: str) -> bool:
         """Set the current server by name (in memory only, does not modify the config file).
         
