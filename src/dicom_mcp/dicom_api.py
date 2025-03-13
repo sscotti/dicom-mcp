@@ -4,11 +4,10 @@ DICOM API layer for MCP Server.
 This module provides a clean interface to pynetdicom functionality,
 abstracting the details of DICOM networking.
 """
-
 from typing import Dict, List, Any, Optional, Tuple
 
 from pydicom.dataset import Dataset
-from pynetdicom import AE
+from pynetdicom import AE, debug_logger
 from pynetdicom.sop_class import (
     PatientRootQueryRetrieveInformationModelFind,
     StudyRootQueryRetrieveInformationModelFind,
@@ -20,7 +19,6 @@ from pynetdicom.sop_class import (
 )
 
 from .attributes import get_attributes_for_level
-
 
 class DicomClient:
     """DICOM networking client that handles communication with DICOM servers."""
@@ -376,19 +374,19 @@ class DicomClient:
         for elem in dataset:
             if elem.VR == "SQ":
                 # Handle sequences
-                result[elem.name] = [DicomClient._dataset_to_dict(item) for item in elem.value]
+                result[elem.keyword] = [DicomClient._dataset_to_dict(item) for item in elem.value]
             else:
                 # Handle regular elements
-                if hasattr(elem, "name"):
+                if hasattr(elem, "keyword"):
                     try:
                         if elem.VM > 1:
                             # Multiple values
-                            result[elem.name] = list(elem.value)
+                            result[elem.keyword] = list(elem.value)
                         else:
                             # Single value
-                            result[elem.name] = elem.value
+                            result[elem.keyword] = elem.value
                     except Exception:
                         # Fall back to string representation
-                        result[elem.name] = str(elem.value)
+                        result[elem.keyword] = str(elem.value)
         
         return result
