@@ -1,156 +1,113 @@
 """
 DICOM MCP Server main implementation.
-
-This implementation provides a Model Context Protocol interface
-for interacting with DICOM servers via pynetdicom.
 """
 
-import json
+import os
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Dict, List, Any, Optional
+from typing import Dict, List, Any, AsyncIterator
 
 from mcp.server.fastmcp import FastMCP, Context
 
 from .attributes import ATTRIBUTE_PRESETS
-from .config import DicomConfig
 from .dicom_api import DicomClient
+from .server_config import ServerConfigManager
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dicom_mcp")
+
+# Get config file path from environment variable or use default
+CONFIG_PATH = os.environ.get("DICOM_MCP_CONFIG", "dicom_servers.yaml")
 
 
 @dataclass
 class DicomContext:
     """Context for the DICOM MCP server."""
-    config: DicomConfig
     client: DicomClient
+    config_manager: ServerConfigManager
 
 
-@asynccontextmanager
-async def dicom_lifespan(server: FastMCP) -> AsyncIterator[DicomContext]:
-    """Initialize and clean up the DICOM client for the MCP server."""
-    # Initialize configuration from environment variables
-    config = DicomConfig.from_env()
+def create_dicom_mcp_server(name: str = "DICOM MCP") -> FastMCP:
+    """Create and configure a DICOM MCP server."""
     
-    # Create the DICOM client
-    client = DicomClient(
-        host=config.host,
-        port=config.port,
-        ae_title=config.ae_title
-    )
+    # Define a simple lifespan function
+    @asynccontextmanager
+    async def lifespan(server: FastMCP) -> AsyncIterator[DicomContext]:
+        # Load config
+        config_manager = ServerConfigManager(CONFIG_PATH)
+        server_config = config_manager.get_current_server()
+        
+        if not server_config:
+            raise RuntimeError(f"No current server configured in {CONFIG_PATH}")
+        
+        # Create client
+        client = DicomClient(
+            host=server_config.get('host'),
+            port=server_config.get('port'),
+            ae_title=server_config.get('ae_title')
+        )
+        
+        logger.info(f"DICOM client initialized: {config_manager.current_server}")
+        
+        try:
+            yield DicomContext(client=client, config_manager=config_manager)
+        finally:
+            pass
     
-    logger.info(f"DICOM client initialized")
-    logger.info(f"Default DICOM server: {config.host}:{config.port}")
+    # Create server
+    mcp = FastMCP(name, lifespan=lifespan)
     
-    try:
-        # Yield the context to the server
-        yield DicomContext(config=config, client=client)
-    finally:
-        # Clean up (no specific cleanup needed for DicomClient)
-        logger.info("Cleaning up DICOM client")
-
-
-# Resources
-
-def register_resources(mcp: FastMCP) -> None:
-    """Register all resource handlers with the MCP server."""
-    
-    # @mcp.resource("dicom://config")
-    # def get_dicom_config() -> str:
-    #     """Get the current DICOM server configuration."""
-    #     dicom_ctx = ctx.lifespan_context
-    #     config = dicom_ctx.config
+    # Register tools
+    @mcp.tool()
+    def list_dicom_servers(ctx: Context = None) -> Dict[str, Any]:
+        """List all configured DICOM servers and show which one is currently selected."""
+        dicom_ctx = ctx.lifespan_context
+        config_manager = dicom_ctx.config_manager
         
-    #     return json.dumps({
-    #         "host": config.host,
-    #         "port": config.port,
-    #         "ae_title": config.ae_title
-    #     })
-
-    # @mcp.resource("patient://{patient_id}")
-    # def get_patient(patient_id: str) -> str:
-    #     """Get patient information by Patient ID."""
-    #     dicom_ctx = ctx.lifespan_context
-    #     client = dicom_ctx.client
+        # Get current server name
+        current_server = config_manager.current_server
         
-    #     try:
-    #         # Get the specific patient
-    #         result = client.get_entity_by_id("patient", patient_id)
-    #         return json.dumps(result)
-    #     except Exception as e:
-    #         raise Exception(f"Error querying patient: {str(e)}")
-
-    # @mcp.resource("study://{study_instance_uid}")
-    # def get_study(study_instance_uid: str) -> str:
-    #     """Get study information by Study Instance UID."""
-    #     dicom_ctx = ctx.lifespan_context
-    #     client = dicom_ctx.client
+        # Get all servers with is_current flag
+        result_servers = {}
+        for name, server in config_manager.servers.items():
+            server_copy = server.copy()
+            server_copy['is_current'] = (name == current_server)
+            result_servers[name] = server_copy
         
-    #     try:
-    #         # Get the specific study
-    #         result = client.get_entity_by_id("study", study_instance_uid)
-    #         return json.dumps(result)
-    #     except Exception as e:
-    #         raise Exception(f"Error querying study: {str(e)}")
-
-    # @mcp.resource("series://{series_instance_uid}")
-    # def get_series(series_instance_uid: str) -> str:
-    #     """Get series information by Series Instance UID."""
-    #     dicom_ctx = ctx.lifespan_context
-    #     client = dicom_ctx.client
-        
-    #     try:
-    #         # Get the specific series
-    #         result = client.get_entity_by_id("series", series_instance_uid)
-    #         return json.dumps(result)
-    #     except Exception as e:
-    #         raise Exception(f"Error querying series: {str(e)}")
-
-    # @mcp.resource("instance://{sop_instance_uid}")
-    # def get_instance(sop_instance_uid: str,) -> str:
-    #     """Get instance information by SOP Instance UID."""
-    #     dicom_ctx = ctx.lifespan_context
-    #     client = dicom_ctx.client
-        
-    #     try:
-    #         # Get the specific instance
-    #         result = client.get_entity_by_id("instance", sop_instance_uid)
-    #         return json.dumps(result)
-    #     except Exception as e:
-    #         raise Exception(f"Error querying instance: {str(e)}")
-
-
-# Tools
-
-def register_tools(mcp: FastMCP) -> None:
-    """Register all tool handlers with the MCP server."""
+        return {
+            "current_server": current_server,
+            "servers": result_servers
+        }
     
     @mcp.tool()
-    def configure_dicom_server(
-        host: str, 
-        port: int, 
-        ae_title: str = "MCPSCU", 
-        ctx: Context = None,
-    ) -> str:
-        """Configure the DICOM server connection."""
+    def switch_dicom_server(server_name: str, ctx: Context = None) -> Dict[str, Any]:
+        """Switch to a different configured DICOM server."""
         dicom_ctx = ctx.lifespan_context
-        config = dicom_ctx.config
-        client = dicom_ctx.client
+        config_manager = dicom_ctx.config_manager
         
-        # Update configuration
-        config.host = host
-        config.port = port
-        config.ae_title = ae_title
+        # Check if server exists
+        if server_name not in config_manager.servers:
+            raise ValueError(f"Server '{server_name}' not found in configuration")
         
-        # Update client
-        client.host = host
-        client.port = port
-        client.ae_title = ae_title
+        # Set the current server
+        success = config_manager.set_current_server(server_name)
+        if not success:
+            raise RuntimeError(f"Failed to switch to server '{server_name}'")
         
-        return f"DICOM server configuration updated: {host}:{port} (AET: {ae_title})"
+        # Get the server configuration
+        server_config = config_manager.get_current_server()
+        
+        # Update the client
+        dicom_ctx.client.host = server_config.get('host')
+        dicom_ctx.client.port = server_config.get('port')
+        dicom_ctx.client.ae_title = server_config.get('ae_title')
+        
+        return {
+            "success": True,
+            "message": f"Switched to DICOM server: {server_name}",
+            "server": server_config
+        }
 
     @mcp.tool()
     def verify_connection(ctx: Context = None) -> str:
@@ -280,55 +237,32 @@ def register_tools(mcp: FastMCP) -> None:
         """Get all available attribute presets for queries."""
         return ATTRIBUTE_PRESETS
 
-
-# Prompts
-
-def register_prompts(mcp: FastMCP) -> None:
-    """Register all prompts with the MCP server."""
-    
+    # Register prompt
     @mcp.prompt()
     def dicom_query_guide() -> str:
         """Prompt for guiding users on how to query DICOM data."""
         return """
 DICOM Query Guide
 
-This DICOM Model Context Protocol (MCP) server allows you to interact with medical imaging data from a DICOM server.
+This DICOM Model Context Protocol (MCP) server allows you to interact with medical imaging data from DICOM servers.
 
-## Server Configuration
-1. Configure your DICOM server connection:
+## Server Management
+1. View available DICOM servers:
    ```
-   configure_dicom_server(host="192.168.1.100", port=11112, ae_title="MYPACSAET")
+   list_dicom_servers()
    ```
 
-2. Verify the connection:
+2. Switch to a different server:
+   ```
+   switch_dicom_server(server_name="orthanc-research")
+   ```
+
+3. Verify the connection:
    ```
    verify_connection()
    ```
 
-## Direct Entity Access (Resources)
-For retrieving specific entities by ID:
-
-- Get patient details:
-  ```
-  await ctx.read_resource(f"patient://{patient_id}")
-  ```
-
-- Get study details:
-  ```
-  await ctx.read_resource(f"study://{study_instance_uid}")
-  ```
-
-- Get series details:
-  ```
-  await ctx.read_resource(f"series://{series_instance_uid}")
-  ```
-
-- Get instance details:
-  ```
-  await ctx.read_resource(f"instance://{sop_instance_uid}")
-  ```
-
-## Search Queries (Tools)
+## Search Queries
 For flexible search operations:
 
 1. Search for patients:
@@ -375,17 +309,29 @@ To view available attribute presets:
 ```
 get_attribute_presets()
 ```
+
+## Server Configuration
+The server uses a YAML configuration file to define available DICOM servers.
+By default it looks for `dicom_servers.yaml` in the current directory, 
+or you can set the DICOM_MCP_CONFIG environment variable to specify a different location.
+
+Example configuration:
+```yaml
+servers:
+  clinical-pacs:
+    host: pacs.hospital.org
+    port: 11112
+    ae_title: CLINICALAE
+    description: Main clinical PACS
+  
+  research-pacs:
+    host: research-pacs.hospital.org
+    port: 4242
+    ae_title: RESEARCH
+    description: Research PACS with de-identified data
+
+current_server: clinical-pacs
+```
 """
-
-
-def create_dicom_mcp_server(name: str = "DICOM MCP") -> FastMCP:
-    """Create and configure a DICOM MCP server."""
-    # Create the MCP server
-    mcp = FastMCP(name, lifespan=dicom_lifespan)
-    
-    # Register resources, tools, and prompts
-    register_resources(mcp)
-    register_tools(mcp)
-    register_prompts(mcp)
     
     return mcp

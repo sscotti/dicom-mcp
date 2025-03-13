@@ -13,23 +13,15 @@ docker-compose up -d
 2. Install test dependencies:
 
 ```bash
-pip install pytest requests pydicom pynetdicom
+uv pip install -r pyproject.toml --extra dev
 ```
-
-3. Make sure the `dicom-mcp` package is installed or accessible in your Python path.
 
 ## Running Tests
 
 Run tests using pytest:
 
 ```bash
-pytest test_dicom_mcp.py -v
-```
-
-Or execute the test script directly:
-
-```bash
-python test_dicom_mcp.py
+pytest test_dicom_mcp.py
 ```
 
 ## Test Environment
@@ -37,7 +29,6 @@ python test_dicom_mcp.py
 ### Orthanc DICOM Server
 - Default URL: http://localhost:8042
 - Default DICOM port: 4242
-- Default credentials: demo/demo
 
 ### Configuration
 
@@ -47,8 +38,6 @@ The test environment uses these environment variables (with defaults):
 - `ORTHANC_PORT`: DICOM port of Orthanc (default: "4242")
 - `ORTHANC_WEB_PORT`: Web UI port of Orthanc (default: "8042")
 - `ORTHANC_AET`: AE Title of Orthanc (default: "ORTHANC")
-- `ORTHANC_USERNAME`: Web UI username (default: "demo")
-- `ORTHANC_PASSWORD`: Web UI password (default: "demo")
 
 For the DICOM MCP server:
 - `DICOM_HOST`: Connection target (defaults to ORTHANC_HOST) 
@@ -67,15 +56,3 @@ For the DICOM MCP server:
    - query_series
    - query_instances
    - get_attribute_presets
-
-## Stopping the Test Environment
-
-Stop and retain the volume:
-```bash
-docker-compose down
-```
-
-Stop and remove the volume:
-```bash
-docker-compose down -v
-```

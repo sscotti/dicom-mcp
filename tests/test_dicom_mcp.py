@@ -2,13 +2,12 @@ import os
 import pytest
 import requests
 import time
-from contextlib import contextmanager
+from pathlib import Path
 from pydicom.dataset import Dataset
 from pynetdicom import AE
 from pynetdicom.sop_class import Verification
 
-from dicom_mcp import create_dicom_mcp_server
-from dicom_mcp.config import DicomConfig
+from dicom_mcp.server_config import ServerConfigManager
 from dicom_mcp.dicom_api import DicomClient
 
 # Configuration
@@ -19,11 +18,8 @@ ORTHANC_AET = os.environ.get("ORTHANC_AET", "ORTHANC")
 ORTHANC_USERNAME = os.environ.get("ORTHANC_USERNAME", "demo")
 ORTHANC_PASSWORD = os.environ.get("ORTHANC_PASSWORD", "demo")
 
-# Set environment variables for dicom-mcp
-os.environ["DICOM_HOST"] = ORTHANC_HOST
-os.environ["DICOM_PORT"] = str(ORTHANC_PORT)
-os.environ["DICOM_AE_TITLE"] = ORTHANC_AET
-
+# Test configuration file path
+TEST_CONFIG_PATH = "tests/test_dicom_servers.yaml"
 
 def is_orthanc_ready():
     """Check if Orthanc is running and accessible"""
@@ -45,6 +41,31 @@ def wait_for_orthanc(max_attempts=10, delay=2):
             return True
         time.sleep(delay)
     return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_config():
+    """Set up the test configuration environment"""
+    # Save the original environment variable if it exists
+    original_config = os.environ.get("DICOM_MCP_CONFIG", None)
+    
+    # Set the test config path
+    os.environ["DICOM_MCP_CONFIG"] = TEST_CONFIG_PATH
+    
+    yield
+    
+    # Restore the original environment variable
+    if original_config is not None:
+        os.environ["DICOM_MCP_CONFIG"] = original_config
+    else:
+        os.environ.pop("DICOM_MCP_CONFIG", None)
+
+
+@pytest.fixture(scope="session")
+def server_config():
+    """Create a server configuration for testing"""
+    config_manager = ServerConfigManager(TEST_CONFIG_PATH)
+    return config_manager
 
 
 @pytest.fixture(scope="session")
@@ -147,13 +168,15 @@ def dicom_echo():
 
 
 @pytest.fixture(scope="session")
-def dicom_client():
+def dicom_client(server_config):
     """Create a DICOM client directly"""
+    # Get the current server config from our config manager
+    current_server = server_config.get_current_server()
     
     client = DicomClient(
-        host=ORTHANC_HOST,
-        port=ORTHANC_PORT,
-        ae_title=ORTHANC_AET
+        host=current_server.get('host'),
+        port=current_server.get('port'),
+        ae_title=current_server.get('ae_title')
     )
     return client
 
@@ -161,6 +184,48 @@ def dicom_client():
 def test_orthanc_connectivity():
     """Ensure Orthanc is running and ready for tests"""
     assert wait_for_orthanc(), "Orthanc is not available"
+
+
+def test_server_config():
+    """Test loading server configuration"""
+    config_manager = ServerConfigManager(TEST_CONFIG_PATH)
+    
+    # Check that config is loaded correctly
+    assert config_manager.servers is not None
+    assert "orthanc" in config_manager.servers
+    assert config_manager.current_server == "orthanc"
+    
+    # Check server details
+    server = config_manager.get_current_server()
+    assert server is not None
+    assert server.get('host') == ORTHANC_HOST
+    assert server.get('port') == ORTHANC_PORT
+    assert server.get('ae_title') == ORTHANC_AET
+
+
+def test_server_switch():
+    """Test switching between servers"""
+    config_manager = ServerConfigManager(TEST_CONFIG_PATH)
+    
+    # Add a second test server in memory
+    config_manager.servers["test-server"] = {
+        "host": "test-host",
+        "port": 11112,
+        "ae_title": "TEST",
+        "description": "Test server"
+    }
+    
+    # Switch to the test server
+    assert config_manager.set_current_server("test-server") == True
+    
+    # Verify current server changed
+    server = config_manager.get_current_server()
+    assert server is not None
+    assert server.get('host') == "test-host"
+    assert server.get('port') == 11112
+    
+    # Test switching to non-existent server
+    assert config_manager.set_current_server("non-existent") == False
 
 
 def test_dicom_connectivity(dicom_echo):
@@ -220,6 +285,7 @@ def test_query_studies(dicom_client: DicomClient):
             break
     
     assert study_found, "Test study not found"
+    return study_uid
 
 
 def test_query_series(dicom_client: DicomClient):
@@ -243,6 +309,7 @@ def test_query_series(dicom_client: DicomClient):
             break
     
     assert series_found, "Test series not found"
+    return series_uid
 
 
 def test_query_instances(dicom_client: DicomClient):
@@ -274,6 +341,16 @@ def test_get_attribute_presets():
     assert "minimal" in ATTRIBUTE_PRESETS
     assert "standard" in ATTRIBUTE_PRESETS
     assert "extended" in ATTRIBUTE_PRESETS
+
+
+def test_create_server():
+    """Test creating the server"""
+    # Import here to avoid circular import
+    from dicom_mcp import create_dicom_mcp_server
+    
+    # Should create a server without error
+    server = create_dicom_mcp_server()
+    assert server is not None
 
 
 if __name__ == "__main__":

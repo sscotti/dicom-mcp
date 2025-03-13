@@ -1,0 +1,14 @@
+# DICOM MCP Server Configuration
+# Copy this file to dicom_servers.yaml in the directory where you run the server
+
+# List of available DICOM servers
+servers:
+  # Default local server (often Orthanc or other test server)
+  orthanc:
+    host: "localhost"
+    port: 4242
+    ae_title: ORTHANC
+    description: Default local DICOM server
+
+# The currently selected server
+current_server: local
