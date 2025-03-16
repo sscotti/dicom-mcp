@@ -1,5 +1,3 @@
-I'll create a comprehensive README for your dicom-mcp repository, drawing inspiration from the structure and style of the git MCP repo README you shared.
-
 # dicom-mcp: A DICOM Model Context Protocol Server
 
 ## Overview
