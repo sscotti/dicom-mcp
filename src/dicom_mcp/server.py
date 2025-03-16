@@ -18,7 +18,6 @@ from .server_config import ServerConfigManager
 logger = logging.getLogger("dicom_mcp")
 
 # Get config file path from environment variable or use default
-CONFIG_PATH = os.environ.get("DICOM_MCP_CONFIG", "dicom_servers.yaml")
 
 
 @dataclass
@@ -28,18 +27,18 @@ class DicomContext:
     config_manager: ServerConfigManager
 
 
-def create_dicom_mcp_server(name: str = "DICOM MCP") -> FastMCP:
+def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP:
     """Create and configure a DICOM MCP server."""
     
     # Define a simple lifespan function
     @asynccontextmanager
     async def lifespan(server: FastMCP) -> AsyncIterator[DicomContext]:
         # Load config
-        config_manager = ServerConfigManager(CONFIG_PATH)
+        config_manager = ServerConfigManager(config_path)
         server_config = config_manager.get_current_server()
         
         if not server_config:
-            raise RuntimeError(f"No current server configured in {CONFIG_PATH}")
+            raise RuntimeError(f"No current server configured in {config_path}")
         
         # Create client
         client = DicomClient(
@@ -121,7 +120,7 @@ def create_dicom_mcp_server(name: str = "DICOM MCP") -> FastMCP:
     ) -> List[Dict[str, Any]]:
         """Query patients matching the specified criteria."""
         dicom_ctx = ctx.lifespan_context
-        client = dicom_ctx.client
+        client :DicomClient = dicom_ctx.client
         
         try:
             return client.query_patient(
