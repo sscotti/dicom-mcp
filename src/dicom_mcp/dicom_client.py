@@ -1,13 +1,13 @@
 """
-DICOM API layer for MCP Server.
+DICOM Client.
 
 This module provides a clean interface to pynetdicom functionality,
 abstracting the details of DICOM networking.
 """
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Tuple
 
 from pydicom.dataset import Dataset
-from pynetdicom import AE, debug_logger
+from pynetdicom import AE
 from pynetdicom.sop_class import (
     PatientRootQueryRetrieveInformationModelFind,
     StudyRootQueryRetrieveInformationModelFind,
@@ -21,19 +21,21 @@ from pynetdicom.sop_class import (
 from .attributes import get_attributes_for_level
 
 class DicomClient:
-    """DICOM networking client that handles communication with DICOM servers."""
+    """DICOM networking client that handles communication with DICOM nodes."""
     
-    def __init__(self, host: str, port: int, calling_aet: str = "TEST", called_aet: str = "MCPSCU"):
+    def __init__(self, host: str, port: int, calling_aet: str, called_aet: str):
         """Initialize DICOM client.
         
         Args:
-            host: DICOM server hostname or IP
-            port: DICOM server port
-            called_aet: Called AE title
+            host: DICOM node hostname or IP
+            port: DICOM node port
+            calling_aet: Local AE title (our AE title)
+            called_aet: Remote AE title (the node we're connecting to)
         """
         self.host = host
         self.port = port
         self.called_aet = called_aet
+        self.calling_aet = calling_aet
         
         # Create the Application Entity
         self.ae = AE(ae_title=calling_aet)
@@ -48,12 +50,12 @@ class DicomClient:
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
     
     def verify_connection(self) -> Tuple[bool, str]:
-        """Verify connectivity to the DICOM server using C-ECHO.
+        """Verify connectivity to the DICOM node using C-ECHO.
         
         Returns:
             Tuple of (success, message)
         """
-        # Associate with the DICOM server
+        # Associate with the DICOM node
         assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
         
         if assoc.is_established:
@@ -64,11 +66,11 @@ class DicomClient:
             assoc.release()
             
             if status and status.Status == 0:
-                return True, f"Connection successful to {self.host}:{self.port}"
+                return True, f"Connection successful to {self.host}:{self.port} (Called AE: {self.called_aet}, Calling AE: {self.calling_aet})"
             else:
                 return False, f"C-ECHO failed with status: {status.Status if status else 'None'}"
         else:
-            return False, f"Failed to associate with DICOM server at {self.host}:{self.port}"
+            return False, f"Failed to associate with DICOM node at {self.host}:{self.port} (Called AE: {self.called_aet}, Calling AE: {self.calling_aet})"
     
     def find(self, query_dataset: Dataset, query_model) -> List[Dict[str, Any]]:
         """Execute a C-FIND request.
@@ -83,11 +85,11 @@ class DicomClient:
         Raises:
             Exception: If association fails
         """
-        # Associate with the DICOM server
+        # Associate with the DICOM node
         assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
         
         if not assoc.is_established:
-            raise Exception(f"Failed to associate with DICOM server at {self.host}:{self.port}")
+            raise Exception(f"Failed to associate with DICOM node at {self.host}:{self.port} (Called AE: {self.called_aet}, Calling AE: {self.calling_aet})")
         
         results = []
         
@@ -279,83 +281,6 @@ class DicomClient:
         
         # Execute query
         return self.find(ds, StudyRootQueryRetrieveInformationModelFind)
-    
-    def get_entity_by_id(self, level: str, uid: str, attribute_preset: str = "extended") -> Dict[str, Any]:
-        """Get entity by its unique identifier.
-        
-        Args:
-            level: Entity level (patient, study, series, instance)
-            uid: Unique identifier for the entity
-            attribute_preset: Attribute preset to use
-            
-        Returns:
-            Dictionary with entity data or empty dict if not found
-        """
-        if level == "patient":
-            results = self.query_patient(patient_id=uid, attribute_preset=attribute_preset)
-        elif level == "study":
-            results = self.query_study(study_instance_uid=uid, attribute_preset=attribute_preset)
-        elif level == "series":
-            # First find which study this series belongs to
-            ds = Dataset()
-            ds.QueryRetrieveLevel = "SERIES"
-            ds.SeriesInstanceUID = uid
-            ds.StudyInstanceUID = ""
-            
-            # Get the study UID
-            assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
-            study_uid = None
-            
-            if assoc.is_established:
-                responses = assoc.send_c_find(ds, StudyRootQueryRetrieveInformationModelFind)
-                for (status, dataset) in responses:
-                    if status and status.Status == 0xFF00 and dataset and hasattr(dataset, "StudyInstanceUID"):
-                        study_uid = dataset.StudyInstanceUID
-                        break
-                assoc.release()
-            
-            if not study_uid:
-                return {}
-                
-            # Now get the series details
-            results = self.query_series(
-                study_instance_uid=study_uid,
-                series_instance_uid=uid,
-                attribute_preset=attribute_preset
-            )
-        elif level == "instance":
-            # First find which series this instance belongs to
-            ds = Dataset()
-            ds.QueryRetrieveLevel = "IMAGE"
-            ds.SOPInstanceUID = uid
-            ds.SeriesInstanceUID = ""
-            
-            # Get the series UID
-            assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
-            series_uid = None
-            
-            if assoc.is_established:
-                responses = assoc.send_c_find(ds, StudyRootQueryRetrieveInformationModelFind)
-                for (status, dataset) in responses:
-                    if status and status.Status == 0xFF00 and dataset and hasattr(dataset, "SeriesInstanceUID"):
-                        series_uid = dataset.SeriesInstanceUID
-                        break
-                assoc.release()
-            
-            if not series_uid:
-                return {}
-                
-            # Now get the instance details
-            results = self.query_instance(
-                series_instance_uid=series_uid,
-                sop_instance_uid=uid,
-                attribute_preset=attribute_preset
-            )
-        else:
-            raise ValueError(f"Unknown level: {level}")
-        
-        # Return the first result or empty dict
-        return results[0] if results else {}
     
     @staticmethod
     def _dataset_to_dict(dataset: Dataset) -> Dict[str, Any]:

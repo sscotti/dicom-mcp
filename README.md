@@ -1,5 +1,3 @@
-I'll create a comprehensive README for your dicom-mcp repository, drawing inspiration from the structure and style of the git MCP repo README you shared.
-
 # dicom-mcp: A DICOM Model Context Protocol Server
 
 ## Overview
@@ -10,20 +8,29 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
 
 ### Tools
 
-1. `configure_dicom_server`
-   - Sets up connection parameters for the DICOM server
-   - Inputs:
-     - `host` (string): DICOM server hostname or IP address
-     - `port` (number): DICOM server port
-     - `ae_title` (string, optional): Application Entity title for DICOM communication
-   - Returns: Confirmation of configuration update
+1. `list_dicom_nodes`
+   - Lists all configured DICOM nodes and calling AE titles
+   - Inputs: None
+   - Returns: Current node, available nodes, current calling AE title, and available calling AE titles
 
-2. `verify_connection`
-   - Tests connectivity to the configured DICOM server using C-ECHO
+2. `switch_dicom_node`
+   - Switches to a different configured DICOM node
+   - Inputs:
+     - `node_name` (string): Name of the node to switch to
+   - Returns: Success message
+
+3. `switch_calling_aet`
+   - Switches to a different configured calling AE title
+   - Inputs:
+     - `aet_name` (string): Name of the calling AE title to switch to
+   - Returns: Success message
+
+4. `verify_connection`
+   - Tests connectivity to the configured DICOM node using C-ECHO
    - Inputs: None
    - Returns: Success or failure message with details
 
-3. `query_patients`
+5. `query_patients`
    - Search for patients matching specified criteria
    - Inputs:
      - `name_pattern` (string, optional): Patient name pattern (can include wildcards)
@@ -34,7 +41,7 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
      - `exclude_attributes` (string[], optional): DICOM attributes to exclude
    - Returns: Array of matching patient records
 
-4. `query_studies`
+6. `query_studies`
    - Search for studies matching specified criteria
    - Inputs:
      - `patient_id` (string, optional): Patient ID
@@ -48,7 +55,7 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
      - `exclude_attributes` (string[], optional): DICOM attributes to exclude
    - Returns: Array of matching study records
 
-5. `query_series`
+7. `query_series`
    - Search for series within a study
    - Inputs:
      - `study_instance_uid` (string): Study Instance UID (required)
@@ -61,7 +68,7 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
      - `exclude_attributes` (string[], optional): DICOM attributes to exclude
    - Returns: Array of matching series records
 
-6. `query_instances`
+8. `query_instances`
    - Search for instances within a series
    - Inputs:
      - `series_instance_uid` (string): Series Instance UID (required)
@@ -72,7 +79,7 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
      - `exclude_attributes` (string[], optional): DICOM attributes to exclude
    - Returns: Array of matching instance records
 
-7. `get_attribute_presets`
+9. `get_attribute_presets`
    - Lists available attribute presets for queries
    - Inputs: None
    - Returns: Dictionary of available presets and their attributes by level
@@ -84,107 +91,112 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
 - Python 3.12 or higher
 - A DICOM server to connect to (e.g., Orthanc, dcm4chee, etc.)
 
-### Using uv (recommended)
-
-Using [`uv`](https://docs.astral.sh/uv/) allows for easy installation:
-
-```bash
-uv add dicom-mcp
-```
-
 ### Using pip
 
-Alternatively, install via pip:
+Install via pip:
 
 ```bash
 pip install dicom-mcp
 ```
 
-## Usage
+## Configuration
 
-### Basic Command Line
+dicom-mcp requires a YAML configuration file that defines the DICOM nodes and calling AE titles. Create a configuration file with the following structure:
 
-Run the server directly with:
+```yaml
+# DICOM nodes configuration
+nodes:
+  orthanc:
+    host: "localhost"
+    port: 4242
+    ae_title: "ORTHANC"
+    description: "Local Orthanc DICOM server"
+  
+  clinical:
+    host: "pacs.hospital.org"
+    port: 11112
+    ae_title: "CLIN_PACS"
+    description: "Clinical PACS server"
 
-```bash
-python -m dicom_mcp
+# Local calling AE titles
+calling_aets:
+  default:
+    ae_title: "MCPSCU"
+    description: "Default calling AE title"
+  
+  modality:
+    ae_title: "MODALITY"
+    description: "Simulating a modality"
+
+# Currently selected node
+current_node: "orthanc"
+
+# Currently selected calling AE title
+current_calling_aet: "default"
 ```
 
-Environment variables can be used to configure the default DICOM server:
-- `DICOM_HOST`: DICOM server hostname or IP (default: 127.0.0.1)
-- `DICOM_PORT`: DICOM server port (default: 11112)
-- `DICOM_AE_TITLE`: Application Entity Title (default: MCPSCU)
+## Usage
+
+### Command Line
+
+Run the server using the script entry point:
+
+```bash
+dicom-mcp /path/to/configuration.yaml
+```
+
+If using uv:
+
+```bash
+uv run dicom-mcp /path/to/configuration.yaml
+```
 
 ### Configuration with Claude Desktop
 
 Add this to your `claude_desktop_config.json`:
 
-<details>
-<summary>Using uv</summary>
-
 ```json
 "mcpServers": {
   "dicom": {
-    "command": "uvx",
-    "args": ["dicom-mcp"],
-    "env": {
-      "DICOM_HOST": "192.168.1.100",
-      "DICOM_PORT": "4242",
-      "DICOM_AE_TITLE": "CLAUDESCP"
-    }
+    "command": "uv",
+    "args": ["--directory", "/path/to/dicom-mcp", "run", "dicom-mcp", "/path/to/configuration.yaml"]
   }
 }
 ```
-</details>
-
-<details>
-<summary>Using pip installation</summary>
-
-```json
-"mcpServers": {
-  "dicom": {
-    "command": "python",
-    "args": ["-m", "dicom_mcp"],
-    "env": {
-      "DICOM_HOST": "192.168.1.100",
-      "DICOM_PORT": "4242",
-      "DICOM_AE_TITLE": "CLAUDESCP"
-    }
-  }
-}
-```
-</details>
 
 ### Usage with Zed
 
 Add to your Zed settings.json:
 
-<details>
-<summary>Using uvx</summary>
-
 ```json
 "context_servers": [
   "dicom-mcp": {
     "command": {
-      "path": "uvx",
-      "args": ["dicom-mcp"]
-    },
-    "env": {
-      "DICOM_HOST": "192.168.1.100",
-      "DICOM_PORT": "4242",
-      "DICOM_AE_TITLE": "ZEDSCP"
+      "path": "uv",
+      "args": ["--directory", "/path/to/dicom-mcp", "run", "dicom-mcp", "/path/to/configuration.yaml"]
     }
   }
 ],
 ```
-</details>
 
 ## Example Queries
 
-### Configure the DICOM server
+### List available DICOM nodes
 
 ```python
-configure_dicom_server(host="192.168.1.100", port=4242, ae_title="MYSCP")
+list_dicom_nodes()
+```
+
+### Switch to a different node
+
+```python
+switch_dicom_node(node_name="clinical")
+```
+
+### Switch to a different calling AE title
+
+```python
+switch_calling_aet(aet_name="modality")
 ```
 
 ### Verify connection
@@ -251,14 +263,7 @@ instances = query_instances(
 You can use the MCP inspector to debug the server:
 
 ```bash
-npx @modelcontextprotocol/inspector uvx dicom-mcp
-```
-
-Or if you've installed the package in development mode:
-
-```bash
-cd path/to/dicom-mcp
-npx @modelcontextprotocol/inspector python -m dicom_mcp
+npx @modelcontextprotocol/inspector uv --directory /path/to/dicom-mcp run dicom-mcp /path/to/configuration.yaml
 ```
 
 ## Development
@@ -282,15 +287,30 @@ npx @modelcontextprotocol/inspector python -m dicom_mcp
    pip install -e .
    ```
 
+### Running Tests
+
+The tests require a running Orthanc server. You can start one using Docker:
+
+```bash
+cd tests
+docker-compose up -d
+```
+
+Then run the tests:
+
+```bash
+pytest tests/test_dicom_mcp.py
+```
+
 ### Project Structure
 
 - `src/dicom_mcp/`: Main package
   - `__init__.py`: Package initialization
   - `__main__.py`: Entry point
   - `server.py`: MCP server implementation
-  - `dicom_api.py`: DICOM client implementation
+  - `dicom_client.py`: DICOM client implementation
   - `attributes.py`: DICOM attribute presets
-  - `config.py`: Configuration management
+  - `config.py`: Configuration management with Pydantic
 
 ## License
 

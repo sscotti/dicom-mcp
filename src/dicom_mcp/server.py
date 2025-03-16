@@ -2,7 +2,6 @@
 DICOM MCP Server main implementation.
 """
 
-import os
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -11,46 +10,45 @@ from typing import Dict, List, Any, AsyncIterator
 from mcp.server.fastmcp import FastMCP, Context
 
 from .attributes import ATTRIBUTE_PRESETS
-from .dicom_api import DicomClient
-from .server_config import ServerConfigManager
+from .dicom_client import DicomClient
+from .config import DicomConfiguration, load_config
 
 # Configure logging
 logger = logging.getLogger("dicom_mcp")
-
-# Get config file path from environment variable or use default
 
 
 @dataclass
 class DicomContext:
     """Context for the DICOM MCP server."""
+    config: DicomConfiguration
     client: DicomClient
-    config_manager: ServerConfigManager
 
 
-def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP:
+def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMCP:
     """Create and configure a DICOM MCP server."""
     
     # Define a simple lifespan function
     @asynccontextmanager
     async def lifespan(server: FastMCP) -> AsyncIterator[DicomContext]:
         # Load config
-        config_manager = ServerConfigManager(config_path)
-        server_config = config_manager.get_current_server()
+        config = load_config(config_path)
         
-        if not server_config:
-            raise RuntimeError(f"No current server configured in {config_path}")
+        # Get the current node and calling AE title
+        current_node = config.nodes[config.current_node]
+        current_aet = config.calling_aets[config.current_calling_aet]
         
         # Create client
         client = DicomClient(
-            host=server_config.get('host'),
-            port=server_config.get('port'),
-            called_aet=server_config.get('ae_title')
+            host=current_node.host,
+            port=current_node.port,
+            calling_aet=current_aet.ae_title,
+            called_aet=current_node.ae_title
         )
         
-        logger.info(f"DICOM client initialized: {config_manager.current_server}")
+        logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {current_aet.ae_title})")
         
         try:
-            yield DicomContext(client=client, config_manager=config_manager)
+            yield DicomContext(config=config, client=client)
         finally:
             pass
     
@@ -59,49 +57,81 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
     
     # Register tools
     @mcp.tool()
-    def list_dicom_servers(ctx: Context = None) -> Dict[str, Any]:
-        """List all configured DICOM servers and show which one is currently selected."""
+    def list_dicom_nodes(ctx: Context = None) -> Dict[str, Any]:
+        """List all configured DICOM nodes and show which one is currently selected."""
         dicom_ctx = ctx.request_context.lifespan_context
-        config_manager = dicom_ctx.config_manager
-        
-        # Get current server name
+        config = dicom_ctx.config
         
         return {
-            "current_server": config_manager.current_server,
-            "servers": list(config_manager.servers.keys())
+            "current_node": config.current_node,
+            "nodes": list(config.nodes.keys()),
+            "current_calling_aet": config.current_calling_aet,
+            "calling_aets": list(config.calling_aets.keys())
         }
     
     @mcp.tool()
-    def switch_dicom_server(server_name: str, ctx: Context = None) -> Dict[str, Any]:
-        """Switch to a different configured DICOM server."""
+    def switch_dicom_node(node_name: str, ctx: Context = None) -> Dict[str, Any]:
+        """Switch to a different configured DICOM node."""
         dicom_ctx = ctx.request_context.lifespan_context
-        config_manager = dicom_ctx.config_manager
+        config = dicom_ctx.config
         
-        # Check if server exists
-        if server_name not in config_manager.servers:
-            raise ValueError(f"Server '{server_name}' not found in configuration")
+        # Check if node exists
+        if node_name not in config.nodes:
+            raise ValueError(f"Node '{node_name}' not found in configuration")
         
-        # Set the current server
-        success = config_manager.set_current_server(server_name)
-        if not success:
-            raise RuntimeError(f"Failed to switch to server '{server_name}'")
+        # Update configuration
+        config.current_node = node_name
         
-        # Get the server configuration
-        server_config = config_manager.get_current_server()
+        # Create a new client with the updated configuration
+        current_node = config.nodes[config.current_node]
+        current_aet = config.calling_aets[config.current_calling_aet]
         
-        # Update the client
-        dicom_ctx.client.host = server_config.get('host')
-        dicom_ctx.client.port = server_config.get('port')
-        dicom_ctx.client.ae_title = server_config.get('ae_title')
+        # Replace the client with a new instance
+        dicom_ctx.client = DicomClient(
+            host=current_node.host,
+            port=current_node.port,
+            calling_aet=current_aet.ae_title,
+            called_aet=current_node.ae_title
+        )
         
         return {
             "success": True,
-            "message": f"Switched to DICOM server: {server_name}"
+            "message": f"Switched to DICOM node: {node_name}"
+        }
+
+    @mcp.tool()
+    def switch_calling_aet(aet_name: str, ctx: Context = None) -> Dict[str, Any]:
+        """Switch to a different configured calling AE title."""
+        dicom_ctx = ctx.request_context.lifespan_context
+        config = dicom_ctx.config
+        
+        # Check if calling AE title exists
+        if aet_name not in config.calling_aets:
+            raise ValueError(f"Calling AE title '{aet_name}' not found in configuration")
+        
+        # Update configuration
+        config.current_calling_aet = aet_name
+        
+        # Create a new client with the updated configuration
+        current_node = config.nodes[config.current_node]
+        current_aet = config.calling_aets[config.current_calling_aet]
+        
+        # Replace the client with a new instance
+        dicom_ctx.client = DicomClient(
+            host=current_node.host,
+            port=current_node.port,
+            calling_aet=current_aet.ae_title,
+            called_aet=current_node.ae_title
+        )
+        
+        return {
+            "success": True,
+            "message": f"Switched to calling AE title: {aet_name} ({current_aet.ae_title})"
         }
 
     @mcp.tool()
     def verify_connection(ctx: Context = None) -> str:
-        """Verify connectivity to the DICOM server using C-ECHO."""
+        """Verify connectivity to the DICOM node using C-ECHO."""
         dicom_ctx = ctx.request_context.lifespan_context
         client = dicom_ctx.client
         
@@ -120,7 +150,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
     ) -> List[Dict[str, Any]]:
         """Query patients matching the specified criteria."""
         dicom_ctx = ctx.request_context.lifespan_context
-        client :DicomClient = dicom_ctx.client
+        client = dicom_ctx.client
         
         try:
             return client.query_patient(
@@ -234,20 +264,25 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
         return """
 DICOM Query Guide
 
-This DICOM Model Context Protocol (MCP) server allows you to interact with medical imaging data from DICOM servers.
+This DICOM Model Context Protocol (MCP) server allows you to interact with medical imaging data from DICOM nodes.
 
-## Server Management
-1. View available DICOM servers:
+## Node Management
+1. View available DICOM nodes and calling AE titles:
    ```
-   list_dicom_servers()
-   ```
-
-2. Switch to a different server:
-   ```
-   switch_dicom_server(server_name="orthanc-research")
+   list_dicom_nodes()
    ```
 
-3. Verify the connection:
+2. Switch to a different node:
+   ```
+   switch_dicom_node(node_name="research")
+   ```
+
+3. Switch to a different calling AE title:
+   ```
+   switch_calling_aet(aet_name="modality")
+   ```
+
+4. Verify the connection:
    ```
    verify_connection()
    ```
