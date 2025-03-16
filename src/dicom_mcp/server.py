@@ -44,7 +44,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
         client = DicomClient(
             host=server_config.get('host'),
             port=server_config.get('port'),
-            ae_title=server_config.get('ae_title')
+            called_aet=server_config.get('ae_title')
         )
         
         logger.info(f"DICOM client initialized: {config_manager.current_server}")
@@ -61,7 +61,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
     @mcp.tool()
     def list_dicom_servers(ctx: Context = None) -> Dict[str, Any]:
         """List all configured DICOM servers and show which one is currently selected."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         config_manager = dicom_ctx.config_manager
         
         # Get current server name
@@ -74,7 +74,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
     @mcp.tool()
     def switch_dicom_server(server_name: str, ctx: Context = None) -> Dict[str, Any]:
         """Switch to a different configured DICOM server."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         config_manager = dicom_ctx.config_manager
         
         # Check if server exists
@@ -102,7 +102,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
     @mcp.tool()
     def verify_connection(ctx: Context = None) -> str:
         """Verify connectivity to the DICOM server using C-ECHO."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         client = dicom_ctx.client
         
         success, message = client.verify_connection()
@@ -119,7 +119,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
         ctx: Context = None
     ) -> List[Dict[str, Any]]:
         """Query patients matching the specified criteria."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         client :DicomClient = dicom_ctx.client
         
         try:
@@ -148,7 +148,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
         ctx: Context = None
     ) -> List[Dict[str, Any]]:
         """Query studies matching the specified criteria."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         client = dicom_ctx.client
         
         try:
@@ -179,7 +179,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
         ctx: Context = None
     ) -> List[Dict[str, Any]]:
         """Query series matching the specified criteria within a study."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         client = dicom_ctx.client
         
         try:
@@ -207,7 +207,7 @@ def create_dicom_mcp_server(config_path:str, name: str = "DICOM MCP") -> FastMCP
         ctx: Context = None 
     ) -> List[Dict[str, Any]]:
         """Query instances matching the specified criteria within a series."""
-        dicom_ctx = ctx.lifespan_context
+        dicom_ctx = ctx.request_context.lifespan_context
         client = dicom_ctx.client
         
         try:

@@ -12,3 +12,4 @@ servers:
 
 # The currently selected server
 current_server: local
+calling_aet: test

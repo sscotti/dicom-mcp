@@ -176,7 +176,7 @@ def dicom_client(server_config):
     client = DicomClient(
         host=current_server.get('host'),
         port=current_server.get('port'),
-        ae_title=current_server.get('ae_title')
+        called_aet=current_server.get('ae_title')
     )
     return client
 
@@ -349,7 +349,7 @@ def test_create_server():
     from dicom_mcp import create_dicom_mcp_server
     
     # Should create a server without error
-    server = create_dicom_mcp_server()
+    server = create_dicom_mcp_server(TEST_CONFIG_PATH)
     assert server is not None
 
 

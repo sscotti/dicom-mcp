@@ -23,20 +23,20 @@ from .attributes import get_attributes_for_level
 class DicomClient:
     """DICOM networking client that handles communication with DICOM servers."""
     
-    def __init__(self, host: str, port: int, ae_title: str = "MCPSCU"):
+    def __init__(self, host: str, port: int, calling_aet: str = "TEST", called_aet: str = "MCPSCU"):
         """Initialize DICOM client.
         
         Args:
             host: DICOM server hostname or IP
             port: DICOM server port
-            ae_title: Called AE title
+            called_aet: Called AE title
         """
         self.host = host
         self.port = port
-        self.ae_title = ae_title
+        self.called_aet = called_aet
         
         # Create the Application Entity
-        self.ae = AE(ae_title="MCPSCU")
+        self.ae = AE(ae_title=calling_aet)
         
         # Add the necessary presentation contexts
         self.ae.add_requested_context(Verification)
@@ -54,7 +54,7 @@ class DicomClient:
             Tuple of (success, message)
         """
         # Associate with the DICOM server
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.ae_title)
+        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
         
         if assoc.is_established:
             # Send C-ECHO request
@@ -84,7 +84,7 @@ class DicomClient:
             Exception: If association fails
         """
         # Associate with the DICOM server
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.ae_title)
+        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
         
         if not assoc.is_established:
             raise Exception(f"Failed to associate with DICOM server at {self.host}:{self.port}")
@@ -303,7 +303,7 @@ class DicomClient:
             ds.StudyInstanceUID = ""
             
             # Get the study UID
-            assoc = self.ae.associate(self.host, self.port, ae_title=self.ae_title)
+            assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
             study_uid = None
             
             if assoc.is_established:
@@ -331,7 +331,7 @@ class DicomClient:
             ds.SeriesInstanceUID = ""
             
             # Get the series UID
-            assoc = self.ae.associate(self.host, self.port, ae_title=self.ae_title)
+            assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
             series_uid = None
             
             if assoc.is_established:

@@ -18,3 +18,5 @@ dev = [
     "pydicom>=2.4.0",
     "pytest-cov>=6.0.0"
 ]
+[project.scripts]
+dicom-mcp = "dicom_mcp.__main__:main"
