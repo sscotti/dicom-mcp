@@ -17,7 +17,17 @@ from pynetdicom.sop_class import (
     StudyRootQueryRetrieveInformationModelMove,
     Verification
 )
-
+import os
+from pydicom.dataset import Dataset
+import os
+from pydicom.dataset import Dataset
+from pynetdicom.sop_class import PatientRootQueryRetrieveInformationModelMove
+from pynetdicom import StoragePresentationContexts, AE, evt
+import os
+import time
+from pydicom.dataset import Dataset
+from pynetdicom.sop_class import PatientRootQueryRetrieveInformationModelMove
+from pynetdicom import StoragePresentationContexts, AE, evt
 from .attributes import get_attributes_for_level
 
 class DicomClient:
@@ -48,7 +58,149 @@ class DicomClient:
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind)
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
-    
+
+    def retrieve_instance_move(
+        self, 
+        study_instance_uid: str,
+        series_instance_uid: str,
+        sop_instance_uid: str,
+        output_dir: str = "./retrieved_files"
+    ) -> Dict[str, Any]:
+        """Retrieve a specific DICOM instance using C-MOVE.
+        
+        Args:
+            study_instance_uid: Study Instance UID
+            series_instance_uid: Series Instance UID
+            sop_instance_uid: SOP Instance UID
+            output_dir: Directory to save the retrieved instance to
+            
+        Returns:
+            Dictionary with information about the retrieval operation
+        """
+
+        
+        # Create directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Create a temporary Storage SCP to receive the instances
+        storage_ae = AE(ae_title=self.calling_aet)
+        
+        # Add all possible storage SOP classes and transfer syntaxes
+        storage_ae.supported_contexts = StoragePresentationContexts
+        
+        # Create event handler for receiving instances
+        received_files = []
+        store_errors = []
+        
+        def handle_store(event):
+            """Handle a C-STORE request"""
+            try:
+                # Extract relevant information
+                ds = event.dataset
+                sop_class = event.context.abstract_syntax
+                sop_instance = ds.SOPInstanceUID if hasattr(ds, 'SOPInstanceUID') else "unknown"
+                
+                print(f"Received C-STORE for {sop_class}: {sop_instance}")
+                
+                # Save the dataset to a file
+                file_path = os.path.join(output_dir, f"{sop_instance}.dcm")
+                ds.save_as(file_path, write_like_original=False)
+                received_files.append(file_path)
+                
+                return 0x0000  # Success
+            except Exception as e:
+                store_errors.append(str(e))
+                print(f"Error in C-STORE handler: {e}")
+                return 0xC000  # Failed - Unable to process
+        
+        # Start the Storage SCP on a fixed port
+        # Use 0.0.0.0 to listen on all interfaces
+        storage_port = 11112  # This should match the port configured in Orthanc
+        storage_handlers = [(evt.EVT_C_STORE, handle_store)]
+        
+        try:
+            scp = storage_ae.start_server(("0.0.0.0", storage_port), block=False, evt_handlers=storage_handlers)
+            print(f"Storage SCP started on port {storage_port} with AE Title {self.calling_aet}")
+            
+            # Create query dataset
+            ds = Dataset()
+            ds.QueryRetrieveLevel = "IMAGE"
+            ds.StudyInstanceUID = study_instance_uid
+            ds.SeriesInstanceUID = series_instance_uid
+            ds.SOPInstanceUID = sop_instance_uid
+            
+            # Associate with the DICOM node
+            assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+            
+            if not assoc.is_established:
+                return {
+                    "success": False,
+                    "message": f"Failed to associate with DICOM node at {self.host}:{self.port}"
+                }
+            
+            try:
+                # Tell the server to move the instance to our Storage SCP
+                print(f"Sending C-MOVE with destination AE: {self.calling_aet}")
+                responses = assoc.send_c_move(
+                    ds, 
+                    self.calling_aet,  # Move destination AE Title 
+                    PatientRootQueryRetrieveInformationModelMove
+                )
+                
+                success = False
+                message = "C-MOVE operation failed"
+                
+                for (status, dataset) in responses:
+                    if status:
+                        status_int = status.Status if hasattr(status, 'Status') else 0
+                        print(f"C-MOVE response status: 0x{status_int:04x}")
+                        
+                        if status_int == 0x0000:  # Success
+                            success = True
+                            message = "C-MOVE operation completed successfully"
+                        elif status_int == 0xFF00:  # Pending
+                            success = True  # Still processing
+                            message = "C-MOVE operation in progress"
+                
+                # Give some time for the SCP to receive files 
+                # (in case there's a delay in network communication)
+                time.sleep(2)
+                
+                # Report the results
+                if received_files:
+                    return {
+                        "success": True,
+                        "message": f"Retrieved {len(received_files)} instances",
+                        "file_path": received_files[0] if received_files else ""
+                    }
+                
+                if store_errors:
+                    return {
+                        "success": False,
+                        "message": f"C-STORE errors: {'; '.join(store_errors)}",
+                        "file_path": ""
+                    }
+                
+                return {
+                    "success": success,
+                    "message": message,
+                    "file_path": ""
+                }
+            
+            finally:
+                # Release the association
+                assoc.release()
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error during C-MOVE operation: {str(e)}",
+                "file_path": ""
+            }
+        finally:
+            # Stop the storage SCP
+            scp.shutdown()
+
     def verify_connection(self) -> Tuple[bool, str]:
         """Verify connectivity to the DICOM node using C-ECHO.
         
@@ -315,3 +467,5 @@ class DicomClient:
                         result[elem.keyword] = str(elem.value)
         
         return result
+
+    

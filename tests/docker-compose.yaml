@@ -10,3 +10,5 @@ services:
       - VERBOSE_ENABLED="true"
       - VERBOSE_STARTUP="true"
       - ORTHANC__PYTHON_VERBOSE="true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

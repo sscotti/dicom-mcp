@@ -59,6 +59,11 @@
         "AET": "STORESCP",
         "Host": "host.docker.internal",
         "Port": 4243
+      },
+      "MCPSCU": {
+        "AET": "MCPSCU",
+        "Host": "host.docker.internal", 
+        "Port": 11112
       }
     },
     "DicomModalitiesInDatabase": false,

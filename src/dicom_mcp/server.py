@@ -70,6 +70,37 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         }
     
     @mcp.tool()
+    def retrieve_instance(
+        study_instance_uid: str,
+        series_instance_uid: str,
+        sop_instance_uid: str,
+        output_directory: str = "./retrieved_files",
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Retrieve a specific DICOM instance and save it to the local filesystem.
+        
+        Args:
+            study_instance_uid: Study Instance UID
+            series_instance_uid: Series Instance UID
+            sop_instance_uid: SOP Instance UID
+            output_directory: Directory to save the retrieved instance to
+            ctx: Context object
+            
+        Returns:
+            Dictionary with information about the retrieval operation
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        client:DicomClient = dicom_ctx.client
+        
+        return client.retrieve_instance(
+            study_instance_uid=study_instance_uid,
+            series_instance_uid=series_instance_uid,
+            sop_instance_uid=sop_instance_uid,
+            output_dir=output_directory
+        )
+
+
+    @mcp.tool()
     def switch_dicom_node(node_name: str, ctx: Context = None) -> Dict[str, Any]:
         """Switch to a different configured DICOM node."""
         dicom_ctx = ctx.request_context.lifespan_context
