@@ -13,6 +13,7 @@ from pynetdicom.sop_class import Verification
 from dicom_mcp.config import DicomConfiguration, load_config
 from dicom_mcp.dicom_client import DicomClient
 
+        
 # Configuration
 ORTHANC_HOST = os.environ.get("ORTHANC_HOST", "localhost")
 ORTHANC_PORT = int(os.environ.get("ORTHANC_PORT", "4242"))
@@ -21,43 +22,10 @@ ORTHANC_AET = os.environ.get("ORTHANC_AET", "ORTHANC")
 ORTHANC_USERNAME = os.environ.get("ORTHANC_USERNAME", "")
 ORTHANC_PASSWORD = os.environ.get("ORTHANC_PASSWORD", "")
 
-# Test configuration
 @pytest.fixture(scope="session")
-def test_config_file():
-    """Create a temporary test configuration file."""
-    config = {
-        "nodes": {
-            "orthanc": {
-                "host": ORTHANC_HOST,
-                "port": ORTHANC_PORT,
-                "ae_title": ORTHANC_AET,
-                "description": "Test Orthanc server"
-            }
-        },
-        "calling_aets": {
-            "test": {
-                "ae_title": "TESTCLIENT",
-                "description": "Test client"
-            }
-        },
-        "current_node": "orthanc",
-        "current_calling_aet": "test"
-    }
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp:
-        yaml.dump(config, temp)
-        temp_path = temp.name
-    
-    yield temp_path
-    
-    # Clean up
-    os.unlink(temp_path)
-
-
-@pytest.fixture(scope="session")
-def dicom_config(test_config_file):
+def dicom_config():
     """Load the test configuration."""
-    return load_config(test_config_file)
+    return load_config("tests/test_dicom_servers.yaml")
 
 
 @pytest.fixture(scope="session")
