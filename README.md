@@ -4,7 +4,7 @@
 
 A Model Context Protocol server for DICOM (Digital Imaging and Communications in Medicine) interactions. This server provides tools to query and interact with DICOM servers, enabling Large Language Models to access and analyze medical imaging metadata.
 
-dicom-mcp allows AI assistants to query patient information, studies, series, and instances from DICOM servers using standard DICOM networking protocols. It's built on pynetdicom and follows the Model Context Protocol specification.
+dicom-mcp allows AI assistants to query patient information, studies, series, and instances from DICOM servers using standard DICOM networking protocols. It also supports extracting text from encapsulated PDF documents stored in DICOM format, making it possible to analyze clinical reports. It's built on pynetdicom and follows the Model Context Protocol specification.
 
 ### Tools
 
@@ -84,6 +84,23 @@ dicom-mcp allows AI assistants to query patient information, studies, series, an
    - Inputs: None
    - Returns: Dictionary of available presets and their attributes by level
 
+10. `retrieve_instance`
+    - Retrieves a specific DICOM instance and saves it to the local filesystem
+    - Inputs:
+      - `study_instance_uid` (string): Study Instance UID
+      - `series_instance_uid` (string): Series Instance UID
+      - `sop_instance_uid` (string): SOP Instance UID
+      - `output_directory` (string, optional): Directory to save the retrieved instance to (default: "./retrieved_files")
+    - Returns: Dictionary with information about the retrieval operation
+
+11. `extract_pdf_text_from_dicom`
+    - Retrieves a DICOM instance containing an encapsulated PDF and extracts its text content
+    - Inputs:
+      - `study_instance_uid` (string): Study Instance UID
+      - `series_instance_uid` (string): Series Instance UID
+      - `sop_instance_uid` (string): SOP Instance UID
+    - Returns: Dictionary with extracted text information and status
+    
 ## Installation
 
 ### Prerequisites
@@ -258,6 +275,34 @@ instances = query_instances(
 )
 ```
 
+### Retrieve a DICOM instance
+
+```python
+# Retrieve a specific instance
+result = retrieve_instance(
+    study_instance_uid="1.2.840.10008.5.1.4.1.1.2.1.1",
+    series_instance_uid="1.2.840.10008.5.1.4.1.1.2.1.2",
+    sop_instance_uid="1.2.840.10008.5.1.4.1.1.2.1.3",
+    output_directory="./dicom_files"
+)
+```
+
+### Extract text from a DICOM encapsulated PDF
+
+```python
+# Extract text from an encapsulated PDF
+result = extract_pdf_text_from_dicom(
+    study_instance_uid="1.2.840.10008.5.1.4.1.1.104.1.1",
+    series_instance_uid="1.2.840.10008.5.1.4.1.1.104.1.2",
+    sop_instance_uid="1.2.840.10008.5.1.4.1.1.104.1.3"
+)
+
+# Access the extracted text
+if result["success"]:
+    pdf_text = result["text_content"]
+    print(pdf_text)
+```
+
 ## Debugging
 
 You can use the MCP inspector to debug the server:
@@ -320,3 +365,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Built on [pynetdicom](https://github.com/pydicom/pynetdicom)
 - Follows the [Model Context Protocol](https://modelcontextprotocol.io) specification
+- Uses [Apache Tika](https://tika.apache.org/) for PDF text extraction
