@@ -21,7 +21,6 @@ from pynetdicom.sop_class import (
     StudyRootQueryRetrieveInformationModelMove,
     Verification
 )
-from tika import parser
 
 from .attributes import get_attributes_for_level
 
@@ -296,7 +295,7 @@ class DicomClient:
         """Retrieve a DICOM instance with encapsulated PDF and extract its text content.
         
         This function retrieves a DICOM instance that contains an encapsulated PDF document,
-        extracts the PDF, and uses Apache Tika to parse and extract the text content.
+        extracts the PDF, and uses PyPDF2 to parse and extract the text content.
         
         Args:
             study_instance_uid: Study Instance UID
@@ -408,11 +407,11 @@ class DicomClient:
                     message = "C-MOVE operation in progress"
         
         # Give some time for the SCP to receive files 
-        time.sleep(2)
+        time.sleep(4)
         
         # Release the association
         assoc.release()
-        
+        assert len(received_files) > 0
         # Process received files
         if received_files:
             dicom_file = received_files[0]
@@ -432,9 +431,19 @@ class DicomClient:
                 with open(pdf_path, 'wb') as pdf_file:
                     pdf_file.write(pdf_data)
                 
-                # Parse the PDF with Tika
-                raw = parser.from_file(pdf_path)
-                extracted_text = raw.get('content', '')
+                import PyPDF2
+                
+                # Extract text from the PDF
+                with open(pdf_path, 'rb') as pdf_file:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    text_parts = []
+                    
+                    # Extract text from each page
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        text_parts.append(page.extract_text())
+                    
+                    extracted_text = "\n".join(text_parts)
                 
                 scp.shutdown()
                 

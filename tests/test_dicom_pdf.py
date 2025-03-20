@@ -12,6 +12,7 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian
 import re
 from datetime import datetime
+from dicom_mcp.dicom_client import DicomClient
 # Import the same configuration variables and fixtures from test_dicom_mcp.py
 from tests.test_dicom_mcp import (
     ORTHANC_HOST, ORTHANC_PORT, ORTHANC_WEB_PORT, ORTHANC_AET, 
@@ -214,7 +215,7 @@ def upload_pdf_dicom():
             os.unlink(temp_path)
     
     return uploaded_reports
-def test_extract_pdf_text(dicom_client, upload_pdf_dicom):
+def test_extract_pdf_text(dicom_client:DicomClient, upload_pdf_dicom):
     """Test extracting text from a PDF encapsulated in DICOM"""
     # Get the PDF DICOM identifiers
     pdf_info = upload_pdf_dicom[0]
@@ -225,6 +226,7 @@ def test_extract_pdf_text(dicom_client, upload_pdf_dicom):
         series_instance_uid=pdf_info["series_instance_uid"],
         sop_instance_uid=pdf_info["sop_instance_uid"]
     )
+    
     # Check the result
     assert result["success"], f"Text extraction failed: {result['message']}"
     assert result["text_content"], "No text was extracted from the PDF"
