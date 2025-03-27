@@ -137,7 +137,7 @@ def upload_pdf_dicom():
         ds.file_meta = file_meta
         
         # Patient data - same for all reports
-        ds.PatientName = "DLBCL^PATIENT"
+        ds.PatientName = "John Doe"
         ds.PatientID = "DLBCL2024"
         ds.PatientBirthDate = "19700101"
         ds.PatientSex = "O"
