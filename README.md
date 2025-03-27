@@ -1,5 +1,7 @@
 # dicom-mcp: A DICOM Model Context Protocol Server
 
+This repo is part of a blog post: [Agentic Healthcare LLMs](https://www.christianhinge.com/projects/dicom-mcp/)
+
 ## Overview
 
 A Model Context Protocol server for DICOM (Digital Imaging and Communications in Medicine) interactions. This server provides tools to query and interact with DICOM servers, enabling Large Language Models to access and analyze medical imaging metadata.
