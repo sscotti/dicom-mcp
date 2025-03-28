@@ -1,5 +1,7 @@
 # dicom-mcp: A DICOM Model Context Protocol Server
 
+This repo is part of a blog post: [Agentic Healthcare LLMs](https://www.christianhinge.com/projects/dicom-mcp/)
+
 ## Overview
 
 A Model Context Protocol server for DICOM (Digital Imaging and Communications in Medicine) interactions. This server provides tools to query and interact with DICOM servers, enabling Large Language Models to access and analyze medical imaging metadata.
@@ -296,12 +298,8 @@ result = extract_pdf_text_from_dicom(
     series_instance_uid="1.2.840.10008.5.1.4.1.1.104.1.2",
     sop_instance_uid="1.2.840.10008.5.1.4.1.1.104.1.3"
 )
-
-# Access the extracted text
-if result["success"]:
-    pdf_text = result["text_content"]
-    print(pdf_text)
 ```
+
 
 ## Debugging
 
@@ -347,6 +345,12 @@ Then run the tests:
 pytest tests/test_dicom_mcp.py
 ```
 
+To test PDF extraction functionality:
+
+```bash
+pytest tests/test_dicom_pdf.py
+```
+
 ### Project Structure
 
 - `src/dicom_mcp/`: Main package
@@ -365,4 +369,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Built on [pynetdicom](https://github.com/pydicom/pynetdicom)
 - Follows the [Model Context Protocol](https://modelcontextprotocol.io) specification
-- Uses [Apache Tika](https://tika.apache.org/) for PDF text extraction
+- Uses [PyPDF2](https://pythonhosted.org/PyPDF2/) for PDF text extraction

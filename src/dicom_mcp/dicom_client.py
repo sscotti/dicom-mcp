@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Tuple
 
 from pydicom import dcmread
 from pydicom.dataset import Dataset
-from pynetdicom import AE, evt, StoragePresentationContexts
+from pynetdicom import AE, evt, build_role
 from pynetdicom.sop_class import (
     PatientRootQueryRetrieveInformationModelFind,
     StudyRootQueryRetrieveInformationModelFind,
@@ -19,9 +19,9 @@ from pynetdicom.sop_class import (
     PatientRootQueryRetrieveInformationModelMove,
     StudyRootQueryRetrieveInformationModelGet,
     StudyRootQueryRetrieveInformationModelMove,
-    Verification
+    Verification,
+    EncapsulatedPDFStorage  # Add specific SOP class for PDF
 )
-from tika import parser
 
 from .attributes import get_attributes_for_level
 
@@ -53,6 +53,9 @@ class DicomClient:
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind)
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
+        
+        # Add specific storage context for PDF - instead of adding all storage contexts
+        self.ae.add_requested_context(EncapsulatedPDFStorage)
     
     def verify_connection(self) -> Tuple[bool, str]:
         """Verify connectivity to the DICOM node using C-ECHO.
@@ -295,8 +298,8 @@ class DicomClient:
         ) -> Dict[str, Any]:
         """Retrieve a DICOM instance with encapsulated PDF and extract its text content.
         
-        This function retrieves a DICOM instance that contains an encapsulated PDF document,
-        extracts the PDF, and uses Apache Tika to parse and extract the text content.
+        This function retrieves a DICOM instance that contains an encapsulated PDF document
+        using C-GET and extracts the PDF content using PyPDF2 to parse the text content.
         
         Args:
             study_instance_uid: Study Instance UID
@@ -315,68 +318,62 @@ class DicomClient:
         # Create temporary directory for storing retrieved files
         temp_dir = tempfile.mkdtemp()
         
-        # Create a temporary Storage SCP to receive the instances
-        storage_ae = AE(ae_title=self.calling_aet)
-        
-        # Add all possible storage SOP classes and transfer syntaxes
-        storage_ae.supported_contexts = StoragePresentationContexts
-        
-        # Create event handler for receiving instances
-        received_files = []
-        store_errors = []
-        
-        def handle_store(event):
-            """Handle a C-STORE request"""
-            # Extract relevant information
-            ds = event.dataset
-            sop_instance = ds.SOPInstanceUID if hasattr(ds, 'SOPInstanceUID') else "unknown"
-            
-            # Ensure we have complete file meta information
-            if not hasattr(ds, 'file_meta') or not hasattr(ds.file_meta, 'TransferSyntaxUID'):
-                from pydicom.dataset import FileMetaDataset
-                if not hasattr(ds, 'file_meta'):
-                    ds.file_meta = FileMetaDataset()
-                
-                # Use the transfer syntax from the context
-                if event.context.transfer_syntax:
-                    ds.file_meta.TransferSyntaxUID = event.context.transfer_syntax
-                else:
-                    # Default to Explicit VR Little Endian if not available
-                    ds.file_meta.TransferSyntaxUID = "1.2.840.10008.1.2.1"
-                
-                # Add other required file meta elements if missing
-                if not hasattr(ds.file_meta, 'MediaStorageSOPClassUID') and hasattr(ds, 'SOPClassUID'):
-                    ds.file_meta.MediaStorageSOPClassUID = ds.SOPClassUID
-                
-                if not hasattr(ds.file_meta, 'MediaStorageSOPInstanceUID') and hasattr(ds, 'SOPInstanceUID'):
-                    ds.file_meta.MediaStorageSOPInstanceUID = ds.SOPInstanceUID
-            
-            # Save the dataset to a file
-            file_path = os.path.join(temp_dir, f"{sop_instance}.dcm")
-            ds.save_as(file_path, write_like_original=False)
-            received_files.append(file_path)
-            
-            return 0x0000  # Success
-        
-        # Start the Storage SCP on a fixed port
-        # Use 0.0.0.0 to listen on all interfaces
-        storage_port = 11112  # This should match the port configured in Orthanc
-        storage_handlers = [(evt.EVT_C_STORE, handle_store)]
-        
-        pdf_path = ""
-        extracted_text = ""
-        
-        scp = storage_ae.start_server(("0.0.0.0", storage_port), block=False, evt_handlers=storage_handlers)
-        
-        # Create query dataset
+        # Create dataset for C-GET query
         ds = Dataset()
         ds.QueryRetrieveLevel = "IMAGE"
         ds.StudyInstanceUID = study_instance_uid
         ds.SeriesInstanceUID = series_instance_uid
         ds.SOPInstanceUID = sop_instance_uid
         
-        # Associate with the DICOM node
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        # Define a handler for C-STORE operations during C-GET
+        received_files = []
+        
+        def handle_store(event):
+            """Handle C-STORE operations during C-GET"""
+            ds = event.dataset
+            sop_instance = ds.SOPInstanceUID if hasattr(ds, 'SOPInstanceUID') else "unknown"
+            
+            # Ensure we have file meta information
+            if not hasattr(ds, 'file_meta') or not hasattr(ds.file_meta, 'TransferSyntaxUID'):
+                from pydicom.dataset import FileMetaDataset
+                if not hasattr(ds, 'file_meta'):
+                    ds.file_meta = FileMetaDataset()
+                
+                if event.context.transfer_syntax:
+                    ds.file_meta.TransferSyntaxUID = event.context.transfer_syntax
+                else:
+                    ds.file_meta.TransferSyntaxUID = "1.2.840.10008.1.2.1"
+                
+                if not hasattr(ds.file_meta, 'MediaStorageSOPClassUID') and hasattr(ds, 'SOPClassUID'):
+                    ds.file_meta.MediaStorageSOPClassUID = ds.SOPClassUID
+                
+                if not hasattr(ds.file_meta, 'MediaStorageSOPInstanceUID') and hasattr(ds, 'SOPInstanceUID'):
+                    ds.file_meta.MediaStorageSOPInstanceUID = ds.SOPInstanceUID
+            
+            # Save the dataset to file
+            file_path = os.path.join(temp_dir, f"{sop_instance}.dcm")
+            ds.save_as(file_path, write_like_original=False)
+            received_files.append(file_path)
+            
+            return 0x0000  # Success
+        
+        # Define event handlers - using the proper format for pynetdicom
+        handlers = [(evt.EVT_C_STORE, handle_store)]
+        
+        # Create an SCP/SCU Role Selection Negotiation item for PDF Storage
+        # This is needed to indicate our AE can act as an SCP (receiver) for C-STORE operations
+        # during the C-GET operation
+        role = build_role(EncapsulatedPDFStorage, scp_role=True)
+        
+        # Associate with the DICOM node, providing the event handlers during association
+        # This is the correct way to handle events in pynetdicom
+        assoc = self.ae.associate(
+            self.host, 
+            self.port, 
+            ae_title=self.called_aet,
+            evt_handlers=handlers,
+            ext_neg=[role]  # Add extended negotiation for SCP/SCU role selection
+        )
         
         if not assoc.is_established:
             return {
@@ -386,32 +383,28 @@ class DicomClient:
                 "file_path": ""
             }
         
-        # Tell the server to move the instance to our Storage SCP
-        responses = assoc.send_c_move(
-            ds, 
-            self.calling_aet,  # Move destination AE Title 
-            PatientRootQueryRetrieveInformationModelMove
-        )
-        
         success = False
-        message = "C-MOVE operation failed"
+        message = "C-GET operation failed"
+        pdf_path = ""
+        extracted_text = ""
         
-        for (status, dataset) in responses:
-            if status:
-                status_int = status.Status if hasattr(status, 'Status') else 0
-                
-                if status_int == 0x0000:  # Success
-                    success = True
-                    message = "C-MOVE operation completed successfully"
-                elif status_int == 0xFF00:  # Pending
-                    success = True  # Still processing
-                    message = "C-MOVE operation in progress"
-        
-        # Give some time for the SCP to receive files 
-        time.sleep(2)
-        
-        # Release the association
-        assoc.release()
+        try:
+            # Send C-GET request - without evt_handlers parameter since we provided them during association
+            responses = assoc.send_c_get(ds, PatientRootQueryRetrieveInformationModelGet)
+            
+            for (status, dataset) in responses:
+                if status:
+                    status_int = status.Status if hasattr(status, 'Status') else 0
+                    
+                    if status_int == 0x0000:  # Success
+                        success = True
+                        message = "C-GET operation completed successfully"
+                    elif status_int == 0xFF00:  # Pending
+                        success = True  # Still processing
+                        message = "C-GET operation in progress"
+        finally:
+            # Always release the association
+            assoc.release()
         
         # Process received files
         if received_files:
@@ -432,11 +425,19 @@ class DicomClient:
                 with open(pdf_path, 'wb') as pdf_file:
                     pdf_file.write(pdf_data)
                 
-                # Parse the PDF with Tika
-                raw = parser.from_file(pdf_path)
-                extracted_text = raw.get('content', '')
+                import PyPDF2
                 
-                scp.shutdown()
+                # Extract text from the PDF
+                with open(pdf_path, 'rb') as pdf_file:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    text_parts = []
+                    
+                    # Extract text from each page
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        text_parts.append(page.extract_text())
+                    
+                    extracted_text = "\n".join(text_parts)
                 
                 return {
                     "success": True,
@@ -447,9 +448,6 @@ class DicomClient:
             else:
                 message = "Retrieved DICOM instance does not contain an encapsulated PDF"
                 success = False
-        
-        # Stop the storage SCP
-        scp.shutdown()
         
         return {
             "success": success,
