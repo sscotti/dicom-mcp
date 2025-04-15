@@ -35,17 +35,16 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         
         # Get the current node and calling AE title
         current_node = config.nodes[config.current_node]
-        current_aet = config.calling_aets[config.calling_aet]
         
         # Create client
         client = DicomClient(
             host=current_node.host,
             port=current_node.port,
-            calling_aet=current_aet.ae_title,
+            calling_aet=config.calling_aet,
             called_aet=current_node.ae_title
         )
         
-        logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {current_aet.ae_title})")
+        logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {config.calling_aet})")
         
         try:
             yield DicomContext(config=config, client=client)
@@ -79,7 +78,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         config = dicom_ctx.config
         
         current_node =  config.current_node
-        nodes = [{node:description} for node, description in config.nodes.items()]
+        nodes = [{node_name: node.description} for node_name, node in config.nodes.items()]
 
         return {
             "current_node": current_node,
@@ -165,13 +164,12 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         
         # Create a new client with the updated configuration
         current_node = config.nodes[config.current_node]
-        current_aet = config.calling_aets
         
         # Replace the client with a new instance
         dicom_ctx.client = DicomClient(
             host=current_node.host,
             port=current_node.port,
-            calling_aet=current_aet,
+            calling_aet=config.calling_aet,
             called_aet=current_node.ae_title
         )
         
@@ -179,57 +177,6 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "success": True,
             "message": f"Switched to DICOM node: {node_name}"
         }
-
-    # @mcp.tool()
-    # def switch_calling_aet(aet_name: str, ctx: Context = None) -> Dict[str, Any]:
-    #     """Switch to a different configured calling AE title.
-        
-    #     This tool changes which Application Entity (AE) title will be used as the calling
-    #     AE title in subsequent DICOM operations. The AE title must be defined in the configuration file.
-        
-    #     Args:
-    #         aet_name: The name of the AE title configuration to switch to
-        
-    #     Returns:
-    #         Dictionary containing:
-    #         - success: Boolean indicating if the switch was successful
-    #         - message: Description of the operation result or error
-        
-    #     Example:
-    #         {
-    #             "success": true,
-    #             "message": "Switched to calling AE title: clientA (CLIENTA_AET)"
-    #         }
-        
-    #     Raises:
-    #         ValueError: If the specified AE title is not found in configuration
-    #     """
-    #     dicom_ctx = ctx.request_context.lifespan_context
-    #     config = dicom_ctx.config
-        
-    #     # Check if calling AE title exists
-    #     if aet_name not in config.calling_aets:
-    #         raise ValueError(f"Calling AE title '{aet_name}' not found in configuration")
-        
-    #     # Update configuration
-    #     config.calling_aet = aet_name
-        
-    #     # Create a new client with the updated configuration
-    #     current_node = config.nodes[config.current_node]
-    #     current_aet = config.calling_aets[config.calling_aet]
-        
-    #     # Replace the client with a new instance
-    #     dicom_ctx.client = DicomClient(
-    #         host=current_node.host,
-    #         port=current_node.port,
-    #         calling_aet=current_aet.ae_title,
-    #         called_aet=current_node.ae_title
-    #     )
-        
-    #     return {
-    #         "success": True,
-    #         "message": f"Switched to calling AE title: {aet_name} ({current_aet.ae_title})"
-    #     }
 
     @mcp.tool()
     def verify_connection(ctx: Context = None) -> str:
@@ -503,6 +450,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             )
         except Exception as e:
             raise Exception(f"Error querying instances: {str(e)}")
+        
     @mcp.tool()
     def move_series(
         destination_node: str,
@@ -606,44 +554,6 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         return result
 
 
-    # @mcp.tool()
-    # def list_move_destinations(ctx: Context = None) -> List[Dict[str, str]]:
-    #     """List all available DICOM nodes for C-MOVE operations.
-        
-    #     Returns:
-    #         List of dictionaries containing:
-    #         - name: The node name used in tool calls
-    #         - ae_title: The AE title of the node
-    #         - description: Brief description of the node
-        
-    #     Example:
-    #         [
-    #             {
-    #                 "name": "orthanc",
-    #                 "ae_title": "ORTHANC",
-    #                 "description": "Local Orthanc DICOM server"
-    #             },
-    #             {
-    #                 "name": "monai",
-    #                 "ae_title": "MONAI-DEPLOY",
-    #                 "description": "MONAI inference server"
-    #             }
-    #         ]
-    #     """
-    #     dicom_ctx = ctx.request_context.lifespan_context
-    #     config = dicom_ctx.config
-        
-    #     destinations = []
-        
-    #     for name, node in config.nodes.items():
-    #         destinations.append({
-    #             "name": name,
-    #             "ae_title": node.ae_title,
-    #             "description": node.description if hasattr(node, "description") else ""
-    #         })
-        
-    #     return destinations
-    
     @mcp.tool()
     def get_attribute_presets() -> Dict[str, Dict[str, List[str]]]:
         """Get all available attribute presets for DICOM queries.

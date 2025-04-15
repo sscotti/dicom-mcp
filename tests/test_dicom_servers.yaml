@@ -6,8 +6,8 @@ nodes:
     description: "Default Local Orthanc DICOM server"
   segmentation:
     host: "localhost"
-    ae_title: MONAI-DEPLOY
     port: 104
+    ae_title: MONAI-DEPLOY
     description: "CT Organ segmentation server. If a CT series is sent here, the organs will be segmented and a DICOM pdf with organ volumes will be returned"
 
 # Local calling AE titles
