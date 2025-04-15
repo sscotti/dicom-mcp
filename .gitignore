@@ -8,6 +8,7 @@ wheels/
 *.coverage
 # Virtual environments
 .venv
+todo
 
 # Editors
 .vscode
