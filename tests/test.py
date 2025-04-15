@@ -13,7 +13,7 @@ def main():
     
     # Get the current node and calling AE title
     node = config.nodes[config.current_node]
-    aet = config.calling_aets[config.current_calling_aet]
+    aet = config.calling_aet
     
     # Create client
     client = DicomClient(

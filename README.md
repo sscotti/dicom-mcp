@@ -151,7 +151,7 @@ calling_aets:
 current_node: "orthanc"
 
 # Currently selected calling AE title
-current_calling_aet: "default"
+calling_aet: "default"
 ```
 
 ## Usage

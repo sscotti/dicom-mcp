@@ -16,19 +16,11 @@ class DicomNodeConfig(BaseModel):
     description: str = ""
 
 
-class CallingAETitleConfig(BaseModel):
-    """Configuration for a calling AE title"""
-    ae_title: str
-    description: str = ""
-
-
 class DicomConfiguration(BaseModel):
     """Complete DICOM configuration"""
     nodes: Dict[str, DicomNodeConfig]
-    calling_aets: Dict[str, CallingAETitleConfig]
     current_node: str
-    current_calling_aet: str
-
+    calling_aet: str
 
 def load_config(config_path: str) -> DicomConfiguration:
     """Load DICOM configuration from YAML file.
