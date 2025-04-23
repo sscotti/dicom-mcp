@@ -32,12 +32,12 @@ def dicom_config():
 def dicom_client(dicom_config):
     """Create a DICOM client from configuration."""
     node = dicom_config.nodes[dicom_config.current_node]
-    aet = dicom_config.calling_aets[dicom_config.current_calling_aet]
+    aet = dicom_config.calling_aet
     
     client = DicomClient(
         host=node.host,
         port=node.port,
-        calling_aet=aet.ae_title,
+        calling_aet=aet,
         called_aet=node.ae_title
     )
     return client
@@ -334,7 +334,7 @@ def test_create_server():
                 }
             },
             "current_node": "test",
-            "current_calling_aet": "default"
+            "calling_aet": "default"
         }
         yaml.dump(config, temp)
         temp.flush()

@@ -9,7 +9,7 @@ def main():
     # Simple argument parser
     parser = argparse.ArgumentParser(description="DICOM Model Context Protocol Server")
     parser.add_argument("config_path", help="Path to the DICOM configuration YAML file")
-    parser.add_argument("transport", help="MCP transport type ('sse' or 'stdio",default='stdio')
+    parser.add_argument("--transport", help="MCP transport type ('sse' or 'stdio",default='stdio')
 
     args = parser.parse_args()
     

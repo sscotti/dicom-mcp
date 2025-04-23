@@ -35,17 +35,16 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         
         # Get the current node and calling AE title
         current_node = config.nodes[config.current_node]
-        current_aet = config.calling_aets[config.current_calling_aet]
         
         # Create client
         client = DicomClient(
             host=current_node.host,
             port=current_node.port,
-            calling_aet=current_aet.ae_title,
+            calling_aet=config.calling_aet,
             called_aet=current_node.ae_title
         )
         
-        logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {current_aet.ae_title})")
+        logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {config.calling_aet})")
         
         try:
             yield DicomContext(config=config, client=client)
@@ -68,25 +67,22 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             Dictionary containing:
             - current_node: The currently selected DICOM node name
             - nodes: List of all configured node names
-            - current_calling_aet: The currently selected calling AE title
-            - calling_aets: List of all configured calling AE title names
         
         Example:
             {
                 "current_node": "pacs1",
                 "nodes": ["pacs1", "pacs2", "orthanc"],
-                "current_calling_aet": "client1",
-                "calling_aets": ["client1", "client2"]
             }
         """
         dicom_ctx = ctx.request_context.lifespan_context
         config = dicom_ctx.config
         
+        current_node =  config.current_node
+        nodes = [{node_name: node.description} for node_name, node in config.nodes.items()]
+
         return {
-            "current_node": config.current_node,
-            "nodes": list(config.nodes.keys()),
-            "current_calling_aet": config.current_calling_aet,
-            "calling_aets": list(config.calling_aets.keys())
+            "current_node": current_node,
+            "nodes": nodes,
         }
     
     @mcp.tool()
@@ -168,70 +164,18 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         
         # Create a new client with the updated configuration
         current_node = config.nodes[config.current_node]
-        current_aet = config.calling_aets[config.current_calling_aet]
         
         # Replace the client with a new instance
         dicom_ctx.client = DicomClient(
             host=current_node.host,
             port=current_node.port,
-            calling_aet=current_aet.ae_title,
+            calling_aet=config.calling_aet,
             called_aet=current_node.ae_title
         )
         
         return {
             "success": True,
             "message": f"Switched to DICOM node: {node_name}"
-        }
-
-    @mcp.tool()
-    def switch_calling_aet(aet_name: str, ctx: Context = None) -> Dict[str, Any]:
-        """Switch to a different configured calling AE title.
-        
-        This tool changes which Application Entity (AE) title will be used as the calling
-        AE title in subsequent DICOM operations. The AE title must be defined in the configuration file.
-        
-        Args:
-            aet_name: The name of the AE title configuration to switch to
-        
-        Returns:
-            Dictionary containing:
-            - success: Boolean indicating if the switch was successful
-            - message: Description of the operation result or error
-        
-        Example:
-            {
-                "success": true,
-                "message": "Switched to calling AE title: clientA (CLIENTA_AET)"
-            }
-        
-        Raises:
-            ValueError: If the specified AE title is not found in configuration
-        """
-        dicom_ctx = ctx.request_context.lifespan_context
-        config = dicom_ctx.config
-        
-        # Check if calling AE title exists
-        if aet_name not in config.calling_aets:
-            raise ValueError(f"Calling AE title '{aet_name}' not found in configuration")
-        
-        # Update configuration
-        config.current_calling_aet = aet_name
-        
-        # Create a new client with the updated configuration
-        current_node = config.nodes[config.current_node]
-        current_aet = config.calling_aets[config.current_calling_aet]
-        
-        # Replace the client with a new instance
-        dicom_ctx.client = DicomClient(
-            host=current_node.host,
-            port=current_node.port,
-            calling_aet=current_aet.ae_title,
-            called_aet=current_node.ae_title
-        )
-        
-        return {
-            "success": True,
-            "message": f"Switched to calling AE title: {aet_name} ({current_aet.ae_title})"
         }
 
     @mcp.tool()
@@ -506,6 +450,109 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             )
         except Exception as e:
             raise Exception(f"Error querying instances: {str(e)}")
+        
+    @mcp.tool()
+    def move_series(
+        destination_node: str,
+        series_instance_uid: str,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Move a DICOM series to another DICOM node.
+        
+        This tool transfers a specific series from the current DICOM server to a 
+        destination DICOM node.
+        
+        Args:
+            destination_node: Name of the destination node as defined in the configuration
+            series_instance_uid: The unique identifier for the series to be moved
+        
+        Returns:
+            Dictionary containing:
+            - success: Boolean indicating if the operation was successful
+            - message: Description of the operation result or error
+            - completed: Number of successfully transferred instances
+            - failed: Number of failed transfers
+            - warning: Number of transfers with warnings
+        
+        Example:
+            {
+                "success": true,
+                "message": "C-MOVE operation completed successfully",
+                "completed": 120,
+                "failed": 0,
+                "warning": 0
+            }
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        config = dicom_ctx.config
+        client = dicom_ctx.client
+        
+        # Check if destination node exists
+        if destination_node not in config.nodes:
+            raise ValueError(f"Destination node '{destination_node}' not found in configuration")
+        
+        # Get the destination AE title
+        destination_ae = config.nodes[destination_node].ae_title
+        
+        # Execute the move operation
+        result = client.move_series(
+            destination_ae=destination_ae,
+            series_instance_uid=series_instance_uid
+        )
+        
+        return result
+
+    @mcp.tool()
+    def move_study(
+        destination_node: str,
+        study_instance_uid: str,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Move a DICOM study to another DICOM node.
+        
+        This tool transfers an entire study from the current DICOM server to a 
+        destination DICOM node.
+        
+        Args:
+            destination_node: Name of the destination node as defined in the configuration
+            study_instance_uid: The unique identifier for the study to be moved
+        
+        Returns:
+            Dictionary containing:
+            - success: Boolean indicating if the operation was successful
+            - message: Description of the operation result or error
+            - completed: Number of successfully transferred instances
+            - failed: Number of failed transfers
+            - warning: Number of transfers with warnings
+        
+        Example:
+            {
+                "success": true,
+                "message": "C-MOVE operation completed successfully",
+                "completed": 256,
+                "failed": 0,
+                "warning": 0
+            }
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        config = dicom_ctx.config
+        client = dicom_ctx.client
+        
+        # Check if destination node exists
+        if destination_node not in config.nodes:
+            raise ValueError(f"Destination node '{destination_node}' not found in configuration")
+        
+        # Get the destination AE title
+        destination_ae = config.nodes[destination_node].ae_title
+        
+        # Execute the move operation
+        result = client.move_study(
+            destination_ae=destination_ae,
+            study_instance_uid=study_instance_uid
+        )
+        
+        return result
+
 
     @mcp.tool()
     def get_attribute_presets() -> Dict[str, Dict[str, List[str]]]:
@@ -536,84 +583,5 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             }
         """
         return ATTRIBUTE_PRESETS
-
-    # Register prompt
-    @mcp.prompt()
-    def dicom_query_guide() -> str:
-        """Prompt for guiding users on how to query DICOM data."""
-        return """
-DICOM Query Guide
-
-This DICOM Model Context Protocol (MCP) server allows you to interact with medical imaging data from DICOM nodes.
-
-## Node Management
-1. View available DICOM nodes and calling AE titles:
-   ```
-   list_dicom_nodes()
-   ```
-
-2. Switch to a different node:
-   ```
-   switch_dicom_node(node_name="research")
-   ```
-
-3. Switch to a different calling AE title:
-   ```
-   switch_calling_aet(aet_name="modality")
-   ```
-
-4. Verify the connection:
-   ```
-   verify_connection()
-   ```
-
-## Search Queries
-For flexible search operations:
-
-1. Search for patients:
-   ```
-   query_patients(name_pattern="SMITH*")
-   ```
-
-2. Search for studies:
-   ```
-   query_studies(patient_id="12345678", study_date="20230101-20231231")
-   ```
-
-3. Search for series:
-   ```
-   query_series(study_instance_uid="1.2.840.10008.5.1.4.1.1.2.1.1", modality="CT")
-   ```
-
-4. Search for instances:
-   ```
-   query_instances(series_instance_uid="1.2.840.10008.5.1.4.1.1.2.1.2")
-   ```
-
-## Attribute Presets
-For all queries, you can specify an attribute preset:
-- `minimal`: Basic identifiers only
-- `standard`: Common clinical attributes
-- `extended`: Comprehensive information
-
-Example:
-```
-query_studies(patient_id="12345678", attribute_preset="extended")
-```
-
-You can also customize attributes:
-```
-query_studies(
-    patient_id="12345678", 
-    additional_attributes=["StudyComments"], 
-    exclude_attributes=["AccessionNumber"]
-)
-```
-
-To view available attribute presets:
-```
-get_attribute_presets()
-```
-"""
     
     return mcp
