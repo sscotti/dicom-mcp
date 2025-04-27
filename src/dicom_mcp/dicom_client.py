@@ -16,11 +16,11 @@ from pynetdicom.sop_class import (
     PatientRootQueryRetrieveInformationModelFind,
     StudyRootQueryRetrieveInformationModelFind,
     PatientRootQueryRetrieveInformationModelGet,
-    PatientRootQueryRetrieveInformationModelMove,
+    PatientRootQueryRetrieveInformationModelMove,  # For C-MOVE
     StudyRootQueryRetrieveInformationModelGet,
-    StudyRootQueryRetrieveInformationModelMove,
+    StudyRootQueryRetrieveInformationModelMove,    # For C-MOVE
     Verification,
-    EncapsulatedPDFStorage  # Add specific SOP class for PDF
+    EncapsulatedPDFStorage
 )
 
 from .attributes import get_attributes_for_level
@@ -290,6 +290,185 @@ class DicomClient:
         # Execute query
         return self.find(ds, StudyRootQueryRetrieveInformationModelFind)
     
+    def move_series(
+            self, 
+            destination_ae: str,
+            series_instance_uid: str
+        ) -> dict:
+        """Move a DICOM series to another DICOM node using C-MOVE.
+        
+        This method performs a simple C-MOVE operation to transfer a specific series
+        to a destination DICOM node.
+        
+        Args:
+            destination_ae: AE title of the destination DICOM node
+            series_instance_uid: Series Instance UID to be moved
+            
+        Returns:
+            Dictionary with operation status:
+            {
+                "success": bool,
+                "message": str,
+                "completed": int,  # Number of successful transfers
+                "failed": int,     # Number of failed transfers
+                "warning": int     # Number of warnings
+            }
+        """
+        # Create query dataset for series level
+        ds = Dataset()
+        ds.QueryRetrieveLevel = "SERIES"
+        ds.SeriesInstanceUID = series_instance_uid
+        
+        # Associate with the DICOM node
+        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        
+        if not assoc.is_established:
+            return {
+                "success": False,
+                "message": f"Failed to associate with DICOM node at {self.host}:{self.port}",
+                "completed": 0,
+                "failed": 0,
+                "warning": 0
+            }
+        
+        result = {
+            "success": False,
+            "message": "C-MOVE operation failed",
+            "completed": 0,
+            "failed": 0,
+            "warning": 0
+        }
+        
+        try:
+            # Send C-MOVE request with the destination AE title
+            responses = assoc.send_c_move(
+                ds, 
+                destination_ae, 
+                PatientRootQueryRetrieveInformationModelMove
+            )
+            
+            # Process the responses
+            for (status, dataset) in responses:
+                if status:
+                    # Record the sub-operation counts if available
+                    if hasattr(status, 'NumberOfCompletedSuboperations'):
+                        result["completed"] = status.NumberOfCompletedSuboperations
+                    if hasattr(status, 'NumberOfFailedSuboperations'):
+                        result["failed"] = status.NumberOfFailedSuboperations
+                    if hasattr(status, 'NumberOfWarningSuboperations'):
+                        result["warning"] = status.NumberOfWarningSuboperations
+                    
+                    # Check the status code
+                    if status.Status == 0x0000:  # Success
+                        result["success"] = True
+                        result["message"] = "C-MOVE operation completed successfully"
+                    elif status.Status == 0x0001 or status.Status == 0xB000:  # Success with warnings
+                        result["success"] = True
+                        result["message"] = "C-MOVE operation completed with warnings or failures"
+                    elif status.Status == 0xA801:  # Refused: Move destination unknown
+                        result["message"] = f"C-MOVE refused: Destination '{destination_ae}' unknown"
+                    else:
+                        result["message"] = f"C-MOVE failed with status 0x{status.Status:04X}"
+                        
+                    # If we got a dataset with an error comment, add it
+                    if dataset and hasattr(dataset, 'ErrorComment'):
+                        result["message"] += f": {dataset.ErrorComment}"
+        
+        finally:
+            # Always release the association
+            assoc.release()
+        
+        return result
+
+    def move_study(
+            self, 
+            destination_ae: str,
+            study_instance_uid: str
+        ) -> dict:
+        """Move a DICOM study to another DICOM node using C-MOVE.
+        
+        This method performs a simple C-MOVE operation to transfer a specific study
+        to a destination DICOM node.
+        
+        Args:
+            destination_ae: AE title of the destination DICOM node
+            study_instance_uid: Study Instance UID to be moved
+            
+        Returns:
+            Dictionary with operation status:
+            {
+                "success": bool,
+                "message": str,
+                "completed": int,  # Number of successful transfers
+                "failed": int,     # Number of failed transfers
+                "warning": int     # Number of warnings
+            }
+        """
+        # Create query dataset for study level
+        ds = Dataset()
+        ds.QueryRetrieveLevel = "STUDY"
+        ds.StudyInstanceUID = study_instance_uid
+        
+        # Associate with the DICOM node
+        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        
+        if not assoc.is_established:
+            return {
+                "success": False,
+                "message": f"Failed to associate with DICOM node at {self.host}:{self.port}",
+                "completed": 0,
+                "failed": 0,
+                "warning": 0
+            }
+        
+        result = {
+            "success": False,
+            "message": "C-MOVE operation failed",
+            "completed": 0,
+            "failed": 0,
+            "warning": 0
+        }
+        
+        try:
+            # Send C-MOVE request with the destination AE title
+            responses = assoc.send_c_move(
+                ds, 
+                destination_ae, 
+                PatientRootQueryRetrieveInformationModelMove
+            )
+            
+            # Process the responses
+            for (status, dataset) in responses:
+                if status:
+                    # Record the sub-operation counts if available
+                    if hasattr(status, 'NumberOfCompletedSuboperations'):
+                        result["completed"] = status.NumberOfCompletedSuboperations
+                    if hasattr(status, 'NumberOfFailedSuboperations'):
+                        result["failed"] = status.NumberOfFailedSuboperations
+                    if hasattr(status, 'NumberOfWarningSuboperations'):
+                        result["warning"] = status.NumberOfWarningSuboperations
+                    
+                    # Check the status code
+                    if status.Status == 0x0000:  # Success
+                        result["success"] = True
+                        result["message"] = "C-MOVE operation completed successfully"
+                    elif status.Status == 0x0001 or status.Status == 0xB000:  # Success with warnings
+                        result["success"] = True
+                        result["message"] = "C-MOVE operation completed with warnings or failures"
+                    elif status.Status == 0xA801:  # Refused: Move destination unknown
+                        result["message"] = f"C-MOVE refused: Destination '{destination_ae}' unknown"
+                    else:
+                        result["message"] = f"C-MOVE failed with status 0x{status.Status:04X}"
+                        
+                    # If we got a dataset with an error comment, add it
+                    if dataset and hasattr(dataset, 'ErrorComment'):
+                        result["message"] += f": {dataset.ErrorComment}"
+        
+        finally:
+            # Always release the association
+            assoc.release()
+        
+        return result
     def extract_pdf_text_from_dicom(
             self, 
             study_instance_uid: str,

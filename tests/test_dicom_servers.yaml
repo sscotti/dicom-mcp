@@ -4,35 +4,16 @@ nodes:
     port: 4242
     ae_title: "ORTHANC"
     description: "Default Local Orthanc DICOM server"
-  
-  clinical:
-    host: "pacs.hospital.org"
-    port: 11112
-    ae_title: "CLIN_PACS"
-    description: "Clinical PACS server"
-  
-  research:
-    host: "10.10.10.50"
-    port: 11112
-    ae_title: "RESEARCH"
-    description: "Research PACS server"
+  segmentation:
+    host: "localhost"
+    port: 104
+    ae_title: MONAI-DEPLOY
+    description: "CT Organ segmentation server. If a CT series is sent here, the organs will be segmented and a DICOM pdf with organ volumes will be returned"
 
 # Local calling AE titles
-calling_aets:
-  default:
-    ae_title: "MCPSCU"
-    description: "Default calling AE title"
-  
-  modality:
-    ae_title: "MODALITY"
-    description: "Simulating a modality"
-  
-  workstation:
-    ae_title: "WORKSTATION"
-    description: "Clinical workstation"
+calling_aet: "MCPSCU"
 
 # Currently selected node
 current_node: "orthanc"
-
-# Currently selected calling AE title
-current_calling_aet: "default"
+# # Currently selected calling AE title
+# calling_aet: "default"
