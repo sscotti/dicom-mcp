@@ -72,10 +72,6 @@ DICOM-MCP is an open source project that is not meant for clinical use, and it s
 If you don't have a DICOM server available, you can run a local ORTHANC server using Docker (UI at [http://localhost:8042](http://localhost:8042)):
 
 ```bash
-docker-compose up -d
-`):
-
-```bash
 git clone https://github.com/ChristianHinge/simple_orthanc
 cd simple_orthanc
 docker-compose up -d
