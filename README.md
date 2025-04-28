@@ -20,7 +20,7 @@ The `dicom-mcp` server enables AI assistants to query, read, and move data on DI
 
 ## ✨ Core Capabilities
 
-`dicom-mcp` provides tools for:
+`dicom-mcp` provides tools to:
 
 * **🔍 Query Metadata**: Search for patients, studies, series, and instances using various criteria.
 * **📄 Read DICOM Reports (PDF)**: Retrieve DICOM instances containing encapsulated PDFs (e.g., clinical reports) and extract the text content.
