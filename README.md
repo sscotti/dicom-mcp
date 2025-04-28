@@ -104,7 +104,7 @@ For development:
             "command": "uv",
             "args": [
                 "--directory",
-                "path/to/cloned/dicom-mcp-server",
+                "path/to/cloned/dicom-mcp",
                 "run",
                 "dicom-mcp",
                 "/path/to/your_config.yaml"
