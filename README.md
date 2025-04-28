@@ -202,6 +202,4 @@ npx @modelcontextprotocol/inspector uv run dicom-mcp /path/to/your_config.yaml -
 ## 🙏 Acknowledgments
 
 * Built using [pynetdicom](https://github.com/pydicom/pynetdicom)
-* Follows the [Model Context Protocol](https://modelcontextprotocol.io) specification
 * Uses [PyPDF2](https://pypi.org/project/PyPDF2/) for PDF text extraction
-* Configuration handling with [Pydantic](https://docs.pydantic.dev/)
