@@ -1,19 +1,10 @@
+# DICOM nodes configuration
 nodes:
-  orthanc:
+  main:
     host: "localhost"
     port: 4242
     ae_title: "ORTHANC"
-    description: "Default Local Orthanc DICOM server"
-  segmentation:
-    host: "localhost"
-    ae_title: MONAI-DEPLOY
-    port: 104
-    description: "CT Organ segmentation server. If a CT series is sent here, the organs will be segmented and a DICOM pdf with organ volumes will be returned"
+    description: "Local Orthanc DICOM server"
 
-# Local calling AE titles
-calling_aet: "MCPSCU"
-
-# Currently selected node
-current_node: "orthanc"
-# # Currently selected calling AE title
-# calling_aet: "default"
+current_node: "main"
+calling_aet: "MCPSCU" 
