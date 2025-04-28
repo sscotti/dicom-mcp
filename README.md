@@ -29,7 +29,7 @@ The `dicom-mcp` server enables AI assistants to query, read, and move data on DI
 
 ## 🚀 Quick Start
 ### 📥 Installation
-Install using pip:
+Install using uv or pip:
 
 ```bash
 uv tool install dicom-mcp
