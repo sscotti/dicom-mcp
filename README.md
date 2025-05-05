@@ -65,8 +65,8 @@ nodes:
 current_node: "main"
 calling_aet: "MCPSCU" 
 ```
-> [!NOTE]
-DICOM-MCP is an open source project that is not meant for clinical use, and it should therefore not be connected with live hospital databases or databases with patient-sensitive data. Doing this could lead to both loss of patient data, and patient data leaking onto the internet.
+> [!WARNING]
+DICOM-MCP is not meant for clinical use, and should not be connected with live hospital databases or databases with patient-sensitive data. Doing so could lead to both loss of patient data, and leakage of patient data onto the internet. DICOM-MCP can be used with locally hosted open-weight LLMs for complete data privacy. 
 
 ### (Optional) Sample ORTHANC server
 If you don't have a DICOM server available, you can run a local ORTHANC server using Docker:
@@ -78,7 +78,6 @@ cd tests
 docker ocmpose up -d
 cd ..
 pytest # uploads dummy pdf data to ORTHANC server
-sh upload_dummy_data.sh
 ```
 UI at [http://localhost:8042](http://localhost:8042)
 
