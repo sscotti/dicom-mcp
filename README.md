@@ -6,17 +6,33 @@
 
 The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.). 
 
-
 <div align="center">
 
 🤝 **[Contribute](#contributing)** •
 📝 **[Report Bug](https://github.com/ChristianHinge/dicom-mcp/issues)**  •
-📝 **[Blog Post](https://www.christianhinge.com/projects/dicom-mcp/)** 
+📝 **[Blog Post 1](https://www.christianhinge.com/projects/dicom-mcp/)** 
 
 </div>
-<div align="center">
-<img src="images/example.png" alt="My Awesome Diagram" width="700">
-</div>
+
+```text
+---------------------------------------------------------------------
+🧑‍⚕️ User: "Any significant findings in John Doe's previous CT report?"
+
+🧠 LLM → ⚙️ Tools:
+   query_patients → query_studies → query_series → extract_pdf_text_from_dicom
+
+💬 LLM Response: "The report from 2025-03-26 mentions a history of splenomegaly (enlarged spleen)"
+
+🧑‍⚕️ User: "What's the volume of his spleen at the last scan and the scan today?"
+
+🧠 LLM → ⚙️ Tools:
+   (query_studies → query_series → move_series → query_series → extract_pdf_text_from_dicom) x2
+   (The move_series tool sends the latest CT to a DICOM segmentation node, which returns volume PDF report)
+
+💬 LLM Response: "last year 2024-03-26: 412cm³, today 2025-04-10: 350cm³"
+---------------------------------------------------------------------
+```
+
 
 ## ✨ Core Capabilities
 
@@ -147,24 +163,9 @@ For development:
 The tools can be chained together to answer complex questions:
 
 
-```text
----------------------------------------------------------------------
-🧑‍⚕️ User: "Any significant findings in John Doe's previous CT report?"
-
-🧠 LLM → ⚙️ Tools:
-   query_patients → query_studies → query_series → extract_pdf_text_from_dicom
-
-💬 LLM Response: "The report from 2025-03-26 mentions a history of splenomegaly (enlarged spleen)"
-
-🧑‍⚕️ User: "What's the volume of his spleen at the last scan and the scan today?"
-
-🧠 LLM → ⚙️ Tools:
-   (query_studies → query_series → move_series → query_series → extract_pdf_text_from_dicom) x2
-   (The move_series tool sends the latest CT to a DICOM segmentation node, which returns volume PDF report)
-
-💬 LLM Response: "last year 2024-03-26: 412cm³, today 2025-04-10: 350cm³"
----------------------------------------------------------------------
-```
+<div align="center">
+<img src="images/example.png" alt="My Awesome Diagram" width="700">
+</div>
 
 
 ## 📈 Contributing
