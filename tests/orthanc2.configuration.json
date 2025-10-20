@@ -1,0 +1,15 @@
+{
+  "Name": "ORTHANC2",
+  "DicomServerEnabled": true,
+  "DicomAet": "ORTHANC2",
+  "DicomPort": 4243,
+  "HttpPort": 8043,
+  "DicomModalities": {
+    "ORTHANC": ["ORTHANC", "orthanc", 4242],
+    "MCPSCU": ["MCPSCU", "host.docker.internal", 11112]
+  },
+  "RemoteAccessAllowed": true,
+  "AuthenticationEnabled": false,
+  "RegisteredUsers": {}
+}
+

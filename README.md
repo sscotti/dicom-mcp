@@ -4,13 +4,17 @@
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
  [![PyPI Version](https://img.shields.io/pypi/v/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/) [![PyPI Downloads](https://img.shields.io/pypi/dm/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/)  
 
-The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.). 
+ Forked from:  <https://github.com/ChristianHinge/dicom-mcp>
+
+ The forked version has been modified to incorporate:  <https://github.com/modelcontextprotocol/inspector> for development and testing.  No LLM configured yet.
+
+The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.).
 
 <div align="center">
 
 🤝 **[Contribute](#contributing)** •
 📝 **[Report Bug](https://github.com/ChristianHinge/dicom-mcp/issues)**  •
-📝 **[Blog Post 1](https://www.christianhinge.com/projects/dicom-mcp/)** 
+📝 **[Blog Post 1](https://www.christianhinge.com/projects/dicom-mcp/)**
 
 </div>
 
@@ -33,7 +37,6 @@ The `dicom-mcp` server enables AI assistants to query, read, and move data on DI
 ---------------------------------------------------------------------
 ```
 
-
 ## ✨ Core Capabilities
 
 `dicom-mcp` provides tools to:
@@ -44,97 +47,173 @@ The `dicom-mcp` server enables AI assistants to query, read, and move data on DI
 * **⚙️ Utilities**: Manage connections and understand query options.
 
 ## 🚀 Quick Start
-### 📥 Installation
-Install using uv or pip:
 
-```bash
-uv tool install dicom-mcp
-```
-Or by cloning the repository:
+### 🎯 Two Ways to Use DICOM-MCP
+
+**Option A: MCP Inspector (Free)** - Perfect for testing and development
+
+* ✅ No subscription required
+* ✅ Full DICOM functionality  
+* ✅ Interactive web interface
+* ✅ Real-time debugging
+
+**Option B: Claude Desktop Pro ($20/month)** - AI assistant with DICOM tools
+
+* 🤖 Natural language queries
+* 🧠 AI analysis of medical reports
+* 💬 Conversational workflow
+
+### 📥 Installation
+
+Install using pip by cloning the repository:
 
 ```bash
 # Clone and set up development environment
 git clone https://github.com/ChristianHinge/dicom-mcp
-cd dicom mcp
+cd dicom-mcp
 
 # Create and activate virtual environment
-uv venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 
-# Install with test dependencies
-uv pip install -e ".[dev]"
+# Install with dependencies
+pip install -e ".[dev]"
 ```
-
 
 ### ⚙️ Configuration
 
-`dicom-mcp` requires a YAML configuration file (`config.yaml` or similar) defining DICOM nodes and calling AE titles. Adapt the configuration or keep as is for compatibility with the sample ORTHANC  Server.
+`dicom-mcp` requires a YAML configuration file (`configuration.yaml` or similar) defining DICOM nodes and calling AE titles. Adapt the configuration or keep as is for compatibility with the sample ORTHANC  Server.
 
 ```yaml
+# DICOM nodes configuration
 nodes:
   main:
     host: "localhost"
-    port: 4242 
+    port: 4242
     ae_title: "ORTHANC"
-    description: "Local Orthanc DICOM server"
+    description: "Local Orthanc DICOM server (Primary)"
+  
+  secondary:
+    host: "localhost"
+    port: 4243
+    ae_title: "ORTHANC2"
+    description: "Local Orthanc DICOM server (Secondary)"
 
 current_node: "main"
 calling_aet: "MCPSCU" 
 ```
+
 > [!WARNING]
-DICOM-MCP is not meant for clinical use, and should not be connected with live hospital databases or databases with patient-sensitive data. Doing so could lead to both loss of patient data, and leakage of patient data onto the internet. DICOM-MCP can be used with locally hosted open-weight LLMs for complete data privacy. 
+DICOM-MCP is not meant for clinical use, and should not be connected with live hospital databases or databases with patient-sensitive data. Doing so could lead to both loss of patient data, and leakage of patient data onto the internet. DICOM-MCP can be used with locally hosted open-weight LLMs for complete data privacy.
 
 ### (Optional) Sample ORTHANC server
-If you don't have a DICOM server available, you can run a local ORTHANC server using Docker:
 
-Clone the repository and install test dependencies `pip install -e ".[dev]`
+If you don't have a DICOM server available, you can run a local ORTHANC server using Docker:
 
 ```bash
 cd tests
-docker ocmpose up -d
+docker-compose up -d
 cd ..
 pytest # uploads dummy pdf data to ORTHANC server
 ```
+
 UI at [http://localhost:8042](http://localhost:8042)
 
 ### 🔌 MCP Integration
+
+#### Option 1: MCP Inspector (Free Testing & Development)
+
+The **MCP Inspector** is a free debugging tool that provides the same functionality as Claude Desktop without requiring a subscription. Perfect for testing, development, and direct DICOM operations.
+
+**Start the MCP Inspector:**
+
+```bash
+# Navigate to your dicom-mcp directory
+cd /path/to/dicom-mcp
+
+# Activate your virtual environment
+source venv/bin/activate
+
+# Start MCP Inspector with your DICOM server
+npx @modelcontextprotocol/inspector python3 -m dicom_mcp configuration.yaml --transport stdio
+```
+
+This will:
+
+1. Start the MCP Inspector server
+2. Automatically open your browser to the inspector interface
+3. Connect to your DICOM MCP server
+4. Display all available DICOM tools for testing
+
+**Using the MCP Inspector:**
+
+* **Tools Tab**: Browse and test all 11 DICOM tools
+* **Resources Tab**: View any DICOM resources
+* **History**: See your command history
+* **Server Notifications**: Monitor connection status
+
+**Available DICOM Tools:**
+
+* `verify_connection` - Test DICOM connectivity
+* `list_dicom_nodes` - Show configured servers
+* `query_patients` - Search for patients
+* `query_studies` - Find studies by criteria
+* `query_series` - Locate series within studies
+* `query_instances` - Find individual DICOM images
+* `extract_pdf_text_from_dicom` - Extract text from DICOM PDFs
+* `move_series` / `move_study` - Transfer DICOM data
+* `switch_dicom_node` - Change active server
+* `get_attribute_presets` - Show query detail levels
+
+#### Option 2: Claude Desktop (AI Assistant - Requires Pro Subscription)
+
+> **Note**: MCP tools require a **Claude Pro subscription** ($20/month). The free Claude account does not support MCP integration. For free testing and development, use the MCP Inspector above.
 
 Add to your client configuration (e.g. `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "dicom": {
-      "command": "uv",
-      "args": ["tool","dicom-mcp", "/path/to/your_config.yaml"]
+    "dicom-mcp": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "dicom_mcp",
+        "configuration.yaml"
+      ],
+      "cwd": "/path/to/your/dicom-mcp",
+      "env": {
+        "PATH": "/path/to/your/dicom-mcp/venv/bin:/usr/local/bin:/usr/bin:/bin"
+      }
     }
   }
 }
 ```
 
-For development:
+**Example for development setup:**
 
 ```json
 {
     "mcpServers": {
-        "arxiv-mcp-server": {
-            "command": "uv",
+        "dicom-mcp": {
+            "command": "python3",
             "args": [
-                "--directory",
-                "path/to/cloned/dicom-mcp",
-                "run",
-                "dicom-mcp",
-                "/path/to/your_config.yaml"
-            ]
+                "-m",
+                "dicom_mcp",
+                "configuration.yaml"
+            ],
+            "cwd": "/path/to/your/dicom-mcp",
+            "env": {
+                "PATH": "/path/to/your/dicom-mcp/venv/bin:/usr/local/bin:/usr/bin:/bin"
+            }
         }
     }
 }
 ```
 
-
 ## 🛠️ Tools Overview
 
-`dicom-mcp` provides four categories of tools for interaction with DICOM servers and DICOM data. 
+`dicom-mcp` provides four categories of tools for interaction with DICOM servers and DICOM data.
 
 ### 🔍 Query Metadata
 
@@ -142,6 +221,7 @@ For development:
 * **`query_studies`**: Find studies using patient ID, date, modality, description, accession number, or Study UID.
 * **`query_series`**: Locate series within a specific study using modality, series number/description, or Series UID.
 * **`query_instances`**: Find individual instances (images/objects) within a series using instance number or SOP Instance UID
+
 ### 📄 Read DICOM Reports (PDF)
 
 * **`extract_pdf_text_from_dicom`**: Retrieve a specific DICOM instance containing an encapsulated PDF and extract its text content.
@@ -158,17 +238,16 @@ For development:
 * **`verify_connection`**: Test the DICOM network connection to the currently active node using C-ECHO.
 * **`get_attribute_presets`**: List the available levels of detail (minimal, standard, extended) for metadata query results.<p>
 
-
 ### Example interaction
-The tools can be chained together to answer complex questions:
 
+The tools can be chained together to answer complex questions:
 
 <div align="center">
 <img src="images/example.png" alt="My Awesome Diagram" width="700">
 </div>
 
-
 ## 📈 Contributing
+
 ### Running Tests
 
 Tests require a running Orthanc DICOM server. You can use Docker:
@@ -193,13 +272,35 @@ cd tests
 docker-compose down
 ```
 
-### Debugging
+### 🔧 Development & Debugging
 
-Use the MCP Inspector for debugging the server communication:
+#### MCP Inspector (Recommended)
+
+The **MCP Inspector** is the best tool for development, testing, and debugging your DICOM MCP server:
 
 ```bash
-npx @modelcontextprotocol/inspector uv run dicom-mcp /path/to/your_config.yaml --transport stdio
+# Make sure your virtual environment is activated
+source venv/bin/activate
+
+# Start MCP Inspector
+npx @modelcontextprotocol/inspector python3 -m dicom_mcp configuration.yaml --transport stdio
 ```
+
+**Development Workflow:**
+
+1. **Start Orthanc**: `cd tests && docker-compose up -d`
+2. **Load test data**: `pytest` (uploads sample DICOM data)
+3. **Start MCP Inspector**: Use command above
+4. **Test tools**: Use the web interface to test all DICOM operations
+5. **Debug issues**: Check Server Notifications tab for errors
+
+**Benefits of MCP Inspector:**
+
+* ✅ **Free alternative** to Claude Desktop Pro
+* ✅ **Real-time testing** of all DICOM tools
+* ✅ **Interactive interface** for exploring DICOM data
+* ✅ **Debug logging** and error messages
+* ✅ **No subscription required**
 
 ## 🙏 Acknowledgments
 

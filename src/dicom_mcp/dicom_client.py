@@ -658,11 +658,18 @@ class DicomClient:
                 if hasattr(elem, "keyword"):
                     try:
                         if elem.VM > 1:
-                            # Multiple values
-                            result[elem.keyword] = list(elem.value)
+                            # Multiple values - convert to strings if needed
+                            result[elem.keyword] = [str(v) for v in elem.value]
                         else:
-                            # Single value
-                            result[elem.keyword] = elem.value
+                            # Single value - convert to native Python type
+                            value = elem.value
+                            # Convert PersonName and other special DICOM types to string
+                            if hasattr(value, '__class__') and value.__class__.__module__ == 'pydicom.valuerep':
+                                result[elem.keyword] = str(value)
+                            elif isinstance(value, (int, float, str, bool, type(None))):
+                                result[elem.keyword] = value
+                            else:
+                                result[elem.keyword] = str(value)
                     except Exception:
                         # Fall back to string representation
                         result[elem.keyword] = str(elem.value)

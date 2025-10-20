@@ -12,3 +12,25 @@ services:
       - ORTHANC__PYTHON_VERBOSE="true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - dicom-network
+
+  orthanc2:
+    image: orthancteam/orthanc
+    ports:
+      - 4243:4243
+      - 8043:8043
+    volumes:
+      - ./orthanc2.configuration.json:/etc/orthanc/orthanc.json
+    environment:
+      - VERBOSE_ENABLED="true"
+      - VERBOSE_STARTUP="true"
+      - ORTHANC__PYTHON_VERBOSE="true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - dicom-network
+
+networks:
+  dicom-network:
+    driver: bridge
