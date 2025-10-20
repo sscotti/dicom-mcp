@@ -138,6 +138,10 @@ source venv/bin/activate
 npx @modelcontextprotocol/inspector python3 -m dicom_mcp configuration.yaml --transport stdio
 ```
 
+The **MCP Inspector** provides an interactive web interface for testing your DICOM tools:
+
+![MCP Inspector Interface](images/MCPInspector.jpg)
+
 This will:
 
 1. Start the MCP Inspector server
