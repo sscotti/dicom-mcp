@@ -1,5 +1,7 @@
 # Python-generated files
 __pycache__/
+.pytest_cache/
+.qodo/
 *.py[oc]
 build/
 dist/

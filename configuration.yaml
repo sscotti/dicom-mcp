@@ -4,7 +4,13 @@ nodes:
     host: "localhost"
     port: 4242
     ae_title: "ORTHANC"
-    description: "Local Orthanc DICOM server"
+    description: "Local Orthanc DICOM server (Primary)"
+  
+  secondary:
+    host: "localhost"
+    port: 4243
+    ae_title: "ORTHANC2"
+    description: "Local Orthanc DICOM server (Secondary)"
 
 current_node: "main"
 calling_aet: "MCPSCU" 
