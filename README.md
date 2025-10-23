@@ -10,6 +10,10 @@
 
  The forked version has been modified to incorporate:  <https://github.com/modelcontextprotocol/inspector> for development and testing.
 
+ See also:  npx -y @mcpjam/inspector@latest
+
+<https://www.mcpjam.com/>
+
 The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.), Orthanc in this setup.
 
 ```text
@@ -135,6 +139,10 @@ npx @modelcontextprotocol/inspector python3 -m dicom_mcp configuration.yaml --tr
 The **MCP Inspector** provides an interactive web interface for testing your DICOM tools:
 
 ![MCP Inspector Interface](images/MCPInspector.jpg)
+
+MCP Jam is an alternative:
+
+![MCP JAM Interface](images/mcpjam.jpg)
 
 This will:
 
