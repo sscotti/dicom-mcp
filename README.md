@@ -1,22 +1,16 @@
-# DICOM MCP Server for Medical Imaging Systems 🏥
+# MCP Inpsector Integrated with Orthanc and (optionally Claude Desktop) 🏥
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
- [![PyPI Version](https://img.shields.io/pypi/v/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/) [![PyPI Downloads](https://img.shields.io/pypi/dm/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/)  
+ [![PyPI Version](https://img.shields.io/pypi/v/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/)
+ [![PyPI Downloads](https://img.shields.io/pypi/dm/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/)  
+ <https://github.com/modelcontextprotocol/python-sdk>
 
  Forked from:  <https://github.com/ChristianHinge/dicom-mcp>
 
- The forked version has been modified to incorporate:  <https://github.com/modelcontextprotocol/inspector> for development and testing.  No LLM configured yet.
+ The forked version has been modified to incorporate:  <https://github.com/modelcontextprotocol/inspector> for development and testing.
 
-The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.).
-
-<div align="center">
-
-🤝 **[Contribute](#contributing)** •
-📝 **[Report Bug](https://github.com/ChristianHinge/dicom-mcp/issues)**  •
-📝 **[Blog Post 1](https://www.christianhinge.com/projects/dicom-mcp/)**
-
-</div>
+The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.), Orthanc in this setup.
 
 ```text
 ---------------------------------------------------------------------
@@ -69,7 +63,7 @@ Install using pip by cloning the repository:
 
 ```bash
 # Clone and set up development environment
-git clone https://github.com/ChristianHinge/dicom-mcp
+gh repo clone sscotti/dicom-mcp
 cd dicom-mcp
 
 # Create and activate virtual environment
@@ -173,28 +167,25 @@ This will:
 
 > **Note**: MCP tools require a **Claude Pro subscription** ($20/month). The free Claude account does not support MCP integration. For free testing and development, use the MCP Inspector above.
 
-Add to your client configuration (e.g. `claude_desktop_config.json`):
+Add to your client configuration (e.g. `claude_desktop_config.json`), on my Mac ˜/Library/Application Support/Claude/claude_desktop_config.json
 
 ```json
 {
   "mcpServers": {
     "dicom-mcp": {
-      "command": "python3",
+      "command": "/Users/macbookpro/Desktop/dicom-mcp/venv/bin/python3",
       "args": [
         "-m",
         "dicom_mcp",
-        "configuration.yaml"
+        "/Users/macbookpro/Desktop/dicom-mcp/configuration.yaml"
       ],
-      "cwd": "/path/to/your/dicom-mcp",
-      "env": {
-        "PATH": "/path/to/your/dicom-mcp/venv/bin:/usr/local/bin:/usr/bin:/bin"
-      }
+      "cwd": "/Users/macbookpro/Desktop/dicom-mcp"
     }
   }
 }
 ```
 
-**Example for development setup:**
+**Generic:**
 
 ```json
 {

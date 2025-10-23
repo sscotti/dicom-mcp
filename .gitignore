@@ -9,7 +9,7 @@ wheels/
 *.egg-info
 *.coverage
 # Virtual environments
-.venv
+venv
 todo
 
 # Editors
