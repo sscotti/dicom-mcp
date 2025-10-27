@@ -13,4 +13,11 @@ nodes:
     description: "Local Orthanc DICOM server (Secondary)"
 
 current_node: "main"
-calling_aet: "MCPSCU" 
+calling_aet: "MCPSCU"
+
+# OpenAI configuration
+openai:
+  api_key: "${OPENAI_API_KEY}"  # Set this environment variable
+  model: "gpt-4o"  # or "gpt-3.5-turbo" for faster/cheaper responses
+  max_tokens: 4000
+  temperature: 0.1  # Lower temperature for more consistent medical responses
