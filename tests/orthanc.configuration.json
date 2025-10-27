@@ -1,136 +1,256 @@
 {
-  "Name": "MyOrthanc",
-  "StorageDirectory": "OrthancStorage",
-  "IndexDirectory": "OrthancStorage",
-  "StorageCompression": false,
-  "MaximumStorageSize": 0,
-  "MaximumPatientCount": 0,
-  "MaximumStorageMode": "Recycle",
-  "MaximumStorageCacheSize": 128,
-  "LuaScripts": [],
-  "LuaHeartBeatPeriod": 0,
-  "Plugins": [
-    "/usr/local/share/orthanc/plugins"
-  ],
-  "ConcurrentJobs": 2,
-  "JobsEngineThreadsCount": {
-    "ResourceModification": 1
-  },
-  "HttpServerEnabled": true,
-  "OrthancExplorerEnabled": true,
-  "HttpPort": 8042,
-  "HttpDescribeErrors": true,
-  "HttpCompressionEnabled": false,
-  "WebDavEnabled": true,
-  "WebDavDeleteAllowed": false,
-  "WebDavUploadAllowed": true,
-  "DicomServerEnabled": true,
-  "DicomAet": "ORTHANC",
-  "DicomCheckCalledAet": false,
-  "DicomPort": 4242,
-  "DefaultEncoding": "Latin1",
-  "AcceptedTransferSyntaxes": [
-    "*"
-  ],
-  "UnknownSopClassAccepted": true,
-  "DicomScpTimeout": 30,
-  "RemoteAccessAllowed": true,
-  "SslEnabled": false,
-  "SslCertificate": "certificate.pem",
-  "SslMinimumProtocolVersion": 4,
-  "SslVerifyPeers": false,
-  "SslTrustedClientCertificates": "trustedClientCertificates.pem",
-  "AuthenticationEnabled": false,
-  "DicomTlsEnabled": false,
-  "DicomTlsRemoteCertificateRequired": true,
-  "DicomTlsMinimumProtocolVersion": 0,
-  "DicomAlwaysAllowEcho": true,
-  "DicomAlwaysAllowStore": true,
-  "DicomAlwaysAllowFind": true,
-  "DicomAlwaysAllowFindWorklist": true,
-  "DicomAlwaysAllowGet": true,
-  "DicomAlwaysAllowMove": true,
-  "DicomCheckModalityHost": true,
-  "DicomModalities": {
-    "ORTHANC2": {
-      "AET": "ORTHANC2",
-      "Host": "orthanc2",
-      "Port": 4243
+    "Name": "Enhanced Orthanc with Plugins",
+    "StorageDirectory": "/var/lib/orthanc/db",
+    "IndexDirectory": "/var/lib/orthanc/db",
+    "StorageCompression": false,
+    "MaximumStorageSize": 0,
+    "MaximumPatientCount": 0,
+    "MaximumStorageMode": "Recycle",
+    "MaximumStorageCacheSize": 128,
+    // Enhanced plugin configuration
+    "Plugins": [
+        // Core plugins - ENABLED
+        "/usr/share/orthanc/plugins-available/libOrthancDicomWeb.so",
+        "/usr/share/orthanc/plugins-available/libOrthancPostgreSQLIndex.so",
+        "/usr/share/orthanc/plugins-available/libOrthancPostgreSQLStorage.so",
+        "/usr/share/orthanc/plugins-available/libOrthancGdcm.so",
+        "/usr/share/orthanc/plugins-available/libOrthancTransfers.so",
+        "/usr/share/orthanc/plugins-available/libOrthancExplorer2.so",
+        "/usr/share/orthanc/plugins-available/libOrthancOHIF.so",
+        "/usr/share/orthanc/plugins-available/libStoneWebViewer.so",
+        "/usr/share/orthanc/plugins-available/libOrthancVolView.so"
+        // Additional available plugins - DISABLED (uncomment to enable)
+        // "/usr/share/orthanc/plugins-available/libOrthancJava.so",  // Requires JVM
+        // "/usr/share/orthanc/plugins-available/libOrthancPython.so",  // Python scripting
+        // "/usr/share/orthanc/plugins-available/libOrthancWebViewer.so",  // Legacy web viewer
+        // "/usr/share/orthanc/plugins-available/libOsimisWebViewer.so",  // Osimis web viewer
+        // "/usr/share/orthanc/plugins-available/libOsimisWebViewerAlpha.so",  // Osimis alpha
+        // "/usr/share/orthanc/plugins-available/libOrthancWSI.so",  // Whole slide imaging
+        // "/usr/share/orthanc/plugins-available/libOrthancSTL.so",  // STL mesh export
+        // "/usr/share/orthanc/plugins-available/libOrthancNeuro.so",  // Neuroimaging tools
+        // "/usr/share/orthanc/plugins-available/libOrthancIndexer.so",  // Advanced indexing
+        // "/usr/share/orthanc/plugins-available/libOrthancTcia.so",  // TCIA integration
+        // "/usr/share/orthanc/plugins-available/libOrthancAuthorization.so",  // Authorization
+        // Cloud storage plugins - DISABLED
+        // "/usr/share/orthanc/plugins-available/libOrthancAzureBlobStorage.so",
+        // "/usr/share/orthanc/plugins-available/libOrthancGoogleCloudStorage.so",
+        // "/usr/share/orthanc/plugins-available/libOrthancAwsS3Storage.so",
+        // "/usr/share/orthanc/plugins-available/libAdvancedStorage.so",
+        // Database plugins - DISABLED (using PostgreSQL above)
+        // "/usr/share/orthanc/plugins-available/libOrthancMySQLIndex.so",
+        // "/usr/share/orthanc/plugins-available/libOrthancMySQLStorage.so",
+        // "/usr/share/orthanc/plugins-available/libOrthancOdbcIndex.so",
+        // "/usr/share/orthanc/plugins-available/libOrthancOdbcStorage.so",
+        // Utility plugins - DISABLED
+        // "/usr/share/orthanc/plugins-available/libMultitenantDicom.so",  // Multi-tenancy
+        // "/usr/share/orthanc/plugins-available/libDelayedDeletion.so",  // Delayed deletion
+        // "/usr/share/orthanc/plugins-available/libConnectivityChecks.so",  // Connectivity checks
+        // "/usr/share/orthanc/plugins-available/libHousekeeper.so",  // Housekeeping tasks
+        // "/usr/share/orthanc/plugins-available/libServeFolders.so",  // Serve static folders
+        // "/usr/share/orthanc/plugins-available/libModalityWorklists.so"  // Modality worklists
+    ],
+    // PostgreSQL plugin configuration
+    "PostgreSQL": {
+        "EnableIndex": true,
+        "EnableStorage": false,
+        "Host": "postgres",
+        "Port": 5432,
+        "Database": "orthanc1",
+        "Username": "orthanc",
+        "Password": "orthanc",
+        "EnableSsl": false,
+        "MaximumConnectionRetries": 10,
+        "ConnectionRetryInterval": 5
     },
-    "fake_aet": {
-      "AET": "FAKE_AET",
-      "Host": "host.docker.internal",
-      "Port": 4243
+    // DICOMweb plugin configuration
+    "DicomWeb": {
+        "Enable": true,
+        "Root": "/dicom-web/",
+        "EnableWado": true,
+        "WadoRoot": "/wado",
+        "Ssl": false,
+        "QidoCaseSensitive": false,
+        "Host": "0.0.0.0",
+        "Port": 8042
     },
-    "STORESCP": {
-      "AET": "STORESCP",
-      "Host": "host.docker.internal",
-      "Port": 4243
+    // OHIF plugin configuration (built into Orthanc)
+    "OHIF": {
+        "RouterBasename": "/ohif/"
     },
-    "MCPSCU": {
-      "AET": "MCPSCU",
-      "Host": "host.docker.internal",
-      "Port": 11112
+    // Stone Web Viewer plugin configuration
+    "StoneWebViewer": {
+        "ShowInfoPanelAtStartup": "User",
+        "ShowUserPreferencesButton": true,
+        "ShowNotForDiagnosticUsageDisclaimer": true,
+        "WindowingPresets": [
+            {
+                "Name": "CT Lung",
+                "WindowCenter": -400,
+                "WindowWidth": 1600
+            },
+            {
+                "Name": "CT Abdomen",
+                "WindowCenter": 60,
+                "WindowWidth": 400
+            },
+            {
+                "Name": "CT Bone",
+                "WindowCenter": 300,
+                "WindowWidth": 1500
+            }
+        ]
+    },
+    // VolView plugin configuration
+    "VolView": {
+        "Enable": true,
+        "Restricted": false,
+        "PublicRoot": "/volview/"
+    },
+    // Explorer2 plugin configuration (modern web interface)
+    "OrthancExplorer2": {
+        "Enable": true,
+        "IsDefaultOrthancUI": true,
+        "UiOptions": {
+            "EnableShares": true,
+            "DefaultShareDuration": 0,
+            "ShareDurations": [
+                0,
+                7,
+                15,
+                30,
+                90,
+                365
+            ],
+            "EnableOpenInOhifViewer3": true,
+            "EnableOpenInStoneViewer": true,
+            "EnableOpenInVolView": true,
+            "OhifViewer3PublicRoot": "http://localhost:8042/ohif/",
+            "StoneViewerPublicRoot": "http://localhost:8042/stone-webviewer/",
+            "VolViewPublicRoot": "http://localhost:8042/volview/"
+        },
+        "Tokens": {
+            "InstantLinksValidity": 3600,
+            "ShareType": "osimis-viewer-publication"
+        }
+    },
+    // Python plugin configuration (disabled for now)
+    // "PythonScript": "/usr/local/share/orthanc/plugins/python/script.py",
+    // "PythonVerbose": "true",
+    // Transfers plugin for accelerated transfers
+    "Transfers": {
+        "BucketSize": 4096,
+        "CacheSize": 128,
+        "MaximumNumberOfJobs": 3
+    },
+    // Enhanced job configuration
+    "ConcurrentJobs": 4,
+    "JobsEngineThreadsCount": {
+        "ResourceModification": 2,
+        "DicomModalityStore": 2
+    },
+    // HTTP server configuration
+    "HttpServerEnabled": true,
+    "OrthancExplorerEnabled": true,
+    "HttpPort": 8042,
+    "HttpDescribeErrors": true,
+    "HttpCompressionEnabled": true,
+    "HttpRequestTimeout": 60,
+    "HttpThreadsCount": 50,
+    // DICOM server configuration
+    "DicomServerEnabled": true,
+    "DicomAet": "ORTHANC",
+    "DicomCheckCalledAet": false,
+    "DicomPort": 4242,
+    "DefaultEncoding": "Latin1",
+    "DeflatedTransferSyntaxAccepted": true,
+    "JpegTransferSyntaxAccepted": true,
+    "Jpeg2000TransferSyntaxAccepted": true,
+    "JpegLosslessTransferSyntaxAccepted": true,
+    "JpipTransferSyntaxAccepted": true,
+    "Mpeg2TransferSyntaxAccepted": true,
+    "RleTransferSyntaxAccepted": true,
+    "UnknownSopClassAccepted": false,
+    // Enhanced DICOM configuration
+    "DicomAlwaysAllowEcho": true,
+    "DicomAlwaysAllowFind": true,
+    "DicomAlwaysAllowFindWorklist": true,
+    "DicomAlwaysAllowGet": true,
+    "DicomAlwaysAllowMove": true,
+    "DicomAlwaysAllowStore": true,
+    "DicomCheckModalityHost": false,
+    // DICOM modalities with enhanced configuration
+    "DicomModalities": {
+        "ORTHANC2": {
+            "AET": "ORTHANC2",
+            "Host": "orthanc2",
+            "Port": 4243,
+            "AllowEcho": true,
+            "AllowFind": true,
+            "AllowGet": true,
+            "AllowMove": true,
+            "AllowStore": true
+        },
+        "MCPSCU": {
+            "AET": "MCPSCU",
+            "Host": "host.docker.internal",
+            "Port": 11112,
+            "AllowEcho": true,
+            "AllowFind": true,
+            "AllowGet": true,
+            "AllowMove": true,
+            "AllowStore": true
+        },
+        "OHIF": {
+            "AET": "OHIF",
+            "Host": "ohif",
+            "Port": 4242,
+            "AllowEcho": true,
+            "AllowFind": true,
+            "AllowGet": true,
+            "AllowMove": false,
+            "AllowStore": false
+        }
+    },
+    "DicomModalitiesInDatabase": false,
+    "DicomEchoChecksFind": false,
+    "DicomScuTimeout": 30,
+    "DicomScuPreferredTransferSyntax": "1.2.840.10008.1.2.1",
+    // Enhanced security and authentication
+    "AuthenticationEnabled": false,
+    "RegisteredUsers": {},
+    "RemoteAccessAllowed": true,
+    "SslEnabled": false,
+    "SslCertificate": "",
+    // Enhanced logging
+    "LogLevel": "default",
+    "LogFile": "",
+    "EnableHttpRequestsLog": true,
+    // CORS configuration for web viewers
+    "HttpsCACertificates": "",
+    "HttpsVerifyPeers": true,
+    "HttpsCertificate": "",
+    "HttpsKey": "",
+    "HttpsCiphersAccepted": [],
+    "HttpsProtocolsAccepted": [],
+    // Enhanced metadata handling
+    "OverwriteInstances": false,
+    "LimitFindResults": 0,
+    "LimitFindInstances": 0,
+    "LogExportedResources": false,
+    "KeepAlive": true,
+    "TcpNoDelay": true,
+    // Lua scripting support
+    "LuaScripts": [],
+    "LuaHeartBeatPeriod": 0,
+    // Enhanced compression and optimization
+    "StorageCompression": false,
+    "StorageMD5ForAttachments": true,
+    "DefaultPrivateCreator": "",
+    "StorageAccessOnFind": "Always",
+    "MetricsEnabled": true,
+    // WebDAV support
+    "WebDav": {
+        "Enable": false,
+        "Root": "/webdav/"
     }
-  },
-  "DicomModalitiesInDatabase": false,
-  "DicomEchoChecksFind": false,
-  "DicomScuTimeout": 10,
-  "DicomScuPreferredTransferSyntax": "1.2.840.10008.1.2.1",
-  "DicomThreadsCount": 4,
-  "OrthancPeers": {},
-  "OrthancPeersInDatabase": false,
-  "HttpProxy": "",
-  "HttpVerbose": false,
-  "HttpTimeout": 60,
-  "HttpsVerifyPeers": true,
-  "HttpsCACertificates": "",
-  "UserMetadata": {},
-  "UserContentType": {},
-  "StableAge": 60,
-  "StrictAetComparison": false,
-  "StoreMD5ForAttachments": true,
-  "LimitFindResults": 0,
-  "LimitFindInstances": 0,
-  "LogExportedResources": false,
-  "LogLevel": "Debug",
-  "KeepAlive": true,
-  "KeepAliveTimeout": 1,
-  "TcpNoDelay": true,
-  "HttpThreadsCount": 50,
-  "StoreDicom": true,
-  "DicomAssociationCloseDelay": 5,
-  "QueryRetrieveSize": 100,
-  "CaseSensitivePN": false,
-  "LoadPrivateDictionary": true,
-  "Dictionary": {},
-  "SynchronousCMove": false,
-  "JobsHistorySize": 10,
-  "SaveJobs": true,
-  "OverwriteInstances": false,
-  "MediaArchiveSize": 1,
-  "StorageAccessOnFind": "Always",
-  "MetricsEnabled": true,
-  "ExecuteLuaEnabled": false,
-  "RestApiWriteToFileSystemEnabled": false,
-  "HttpRequestTimeout": 30,
-  "DefaultPrivateCreator": "",
-  "StorageCommitmentReportsSize": 100,
-  "TranscodeDicomProtocol": true,
-  "BuiltinDecoderTranscoderOrder": "After",
-  "IngestTranscodingOfUncompressed": true,
-  "IngestTranscodingOfCompressed": true,
-  "DicomLossyTranscodingQuality": 90,
-  "SyncStorageArea": true,
-  "MallocArenaMax": 5,
-  "DeidentifyLogs": false,
-  "DeidentifyLogsDicomVersion": "2023b",
-  "MaximumPduLength": 16384,
-  "CheckRevisions": false,
-  "SynchronousZipStream": true,
-  "ZipLoaderThreads": 0,
-  "Warnings": {
-    "W001_TagsBeingReadFromStorage": true,
-    "W002_InconsistentDicomTagsInDb": true
-  }
 }
