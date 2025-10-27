@@ -10,6 +10,8 @@ dependencies = [
     "pynetdicom>=2.1.1",
     "pypdf2>=3.0.1",
     "pyyaml>=6.0.2",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +24,4 @@ dev = [
 ]
 [project.scripts]
 dicom-mcp = "dicom_mcp.__main__:main"
+dicom-mcp-chat = "dicom_mcp.openai_chat:main"

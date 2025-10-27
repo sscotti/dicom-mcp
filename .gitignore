@@ -14,3 +14,6 @@ todo
 
 # Editors
 .vscode
+
+# Environment variables
+.env

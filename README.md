@@ -1,4 +1,4 @@
-# MCP Inpsector Integrated with Orthanc and (optionally Claude Desktop) 🏥
+# MCP Integrated with Orthanc and OpenAI ChatGPT 🏥
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
@@ -14,7 +14,7 @@
 
 <https://www.mcpjam.com/>
 
-The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.), Orthanc in this setup.
+The `dicom-mcp` server enables AI assistants (like OpenAI ChatGPT) to query, read, and move data on DICOM servers (PACS, VNA, etc.), with Orthanc as the reference implementation.
 
 ```text
 ---------------------------------------------------------------------
@@ -54,12 +54,17 @@ The `dicom-mcp` server enables AI assistants to query, read, and move data on DI
 * ✅ Full DICOM functionality  
 * ✅ Interactive web interface
 * ✅ Real-time debugging
+* ✅ No API keys needed
 
-**Option B: Claude Desktop Pro ($20/month)** - AI assistant with DICOM tools
+**Option B: OpenAI ChatGPT Integration** - AI-powered DICOM analysis
 
-* 🤖 Natural language queries
-* 🧠 AI analysis of medical reports
-* 💬 Conversational workflow
+* 🤖 Natural language queries about medical data
+* 🧠 AI analysis of DICOM reports and metadata
+* 💻 Command-line chat interface
+* 🚀 Direct OpenAI API integration
+* 🔧 Programmatic access to DICOM tools
+* 🎛️ Customizable AI behavior
+* 💰 Pay-per-use pricing
 
 ### 📥 Installation
 
@@ -121,7 +126,7 @@ UI at [http://localhost:8042](http://localhost:8042)
 
 #### Option 1: MCP Inspector (Free Testing & Development)
 
-The **MCP Inspector** is a free debugging tool that provides the same functionality as Claude Desktop without requiring a subscription. Perfect for testing, development, and direct DICOM operations.
+The **MCP Inspector** is a free debugging tool that provides full access to DICOM MCP functionality without requiring API keys or subscriptions. Perfect for testing, development, and direct DICOM operations.
 
 **Start the MCP Inspector:**
 
@@ -171,48 +176,102 @@ This will:
 * `switch_dicom_node` - Change active server
 * `get_attribute_presets` - Show query detail levels
 
-#### Option 2: Claude Desktop (AI Assistant - Requires Pro Subscription)
+#### Option 2: OpenAI ChatGPT Integration
 
-> **Note**: MCP tools require a **Claude Pro subscription** ($20/month). The free Claude account does not support MCP integration. For free testing and development, use the MCP Inspector above.
+The OpenAI integration provides a direct API connection to ChatGPT with full access to DICOM MCP tools. This option offers AI-powered analysis of medical data with natural language queries and programmatic control.
 
-Add to your client configuration (e.g. `claude_desktop_config.json`), on my Mac ˜/Library/Application Support/Claude/claude_desktop_config.json
+**Setup:**
 
-```json
-{
-  "mcpServers": {
-    "dicom-mcp": {
-      "command": "/Users/macbookpro/Desktop/dicom-mcp/venv/bin/python3",
-      "args": [
-        "-m",
-        "dicom_mcp",
-        "/Users/macbookpro/Desktop/dicom-mcp/configuration.yaml"
-      ],
-      "cwd": "/Users/macbookpro/Desktop/dicom-mcp"
-    }
-  }
-}
+1. **Get OpenAI API Key**: Sign up at [OpenAI](https://platform.openai.com/) and get your API key
+
+2. **Create .env file**: Copy the example and add your API key:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your actual API key:
+   # OPENAI_API_KEY=your-actual-api-key-here
+   ```
+
+   The `.env` file should contain:
+
+   ```bash
+   # Required
+   OPENAI_API_KEY=sk-proj-your-actual-openai-api-key-here
+   
+   # Optional overrides
+   OPENAI_MODEL=gpt-4o
+   OPENAI_MAX_TOKENS=4000
+   OPENAI_TEMPERATURE=0.1
+   ```
+
+3. **Configuration**: The OpenAI settings are already included in `configuration.yaml`:
+
+   ```yaml
+   # OpenAI configuration
+   openai:
+     api_key: "${OPENAI_API_KEY}"  # Set this environment variable
+     model: "gpt-4o"  # or "gpt-3.5-turbo" for faster/cheaper responses
+     max_tokens: 4000
+     temperature: 0.1  # Lower temperature for more consistent medical responses
+   ```
+
+**Usage Options:**
+
+**Interactive Chat Interface:**
+
+```bash
+# Start the interactive chat
+python -m dicom_mcp.openai_chat configuration.yaml
 ```
 
-**Generic:**
+**Programmatic Usage:**
 
-```json
-{
-    "mcpServers": {
-        "dicom-mcp": {
-            "command": "python3",
-            "args": [
-                "-m",
-                "dicom_mcp",
-                "configuration.yaml"
-            ],
-            "cwd": "/path/to/your/dicom-mcp",
-            "env": {
-                "PATH": "/path/to/your/dicom-mcp/venv/bin:/usr/local/bin:/usr/bin:/bin"
-            }
-        }
-    }
-}
+```python
+from dicom_mcp.openai_client import OpenAIDicomClient
+
+# Initialize client
+client = OpenAIDicomClient("configuration.yaml")
+
+# Send a query
+response = client.chat("Find all CT studies for patient DOE^JOHN")
+print(response['response'])
 ```
+
+**Example Queries:**
+
+* "Find all patients with the name pattern 'DOE*'"
+* "Show me CT studies from last week"
+* "Extract text from the latest chest X-ray report for patient ID 12345"
+* "What imaging modalities are available in the system?"
+
+**Quick Start with OpenAI:**
+
+```bash
+# 1. Install dependencies
+source venv/bin/activate
+pip install openai python-dotenv
+
+# 2. Set up your API key
+cp .env.example .env
+# Edit .env and add: OPENAI_API_KEY=your-actual-api-key-here
+
+# 3. Test your setup (optional)
+python test_env_setup.py
+
+# 4. Start interactive chat
+python -m dicom_mcp.openai_chat configuration.yaml
+
+# 5. Or run the example
+python examples/openai_dicom_example.py
+```
+
+**Benefits of OpenAI Integration:**
+
+* ✅ **Direct API access** - No desktop app required
+* ✅ **Programmatic control** - Integrate into your own applications
+* ✅ **Customizable behavior** - Adjust temperature, model, and prompts
+* ✅ **Cost-effective** - Pay per use, no monthly subscription
+* ✅ **Latest models** - Access to GPT-4o and other cutting-edge models
 
 ## 🛠️ Tools Overview
 
@@ -299,7 +358,7 @@ npx @modelcontextprotocol/inspector python3 -m dicom_mcp configuration.yaml --tr
 
 **Benefits of MCP Inspector:**
 
-* ✅ **Free alternative** to Claude Desktop Pro
+* ✅ **Completely free** - No API keys or subscriptions required
 * ✅ **Real-time testing** of all DICOM tools
 * ✅ **Interactive interface** for exploring DICOM data
 * ✅ **Debug logging** and error messages
