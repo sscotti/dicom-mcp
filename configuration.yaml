@@ -15,9 +15,11 @@ nodes:
 current_node: "main"
 calling_aet: "MCPSCU"
 
-# OpenAI configuration
-openai:
-  api_key: "${OPENAI_API_KEY}"  # Set this environment variable
-  model: "gpt-4o"  # or "gpt-3.5-turbo" for faster/cheaper responses
-  max_tokens: 4000
-  temperature: 0.1  # Lower temperature for more consistent medical responses
+# FHIR server configuration (optional)
+fhir:
+  base_url: "http://hackathon.siim.org/fhir"  # Try HTTP if HTTPS fails
+  api_key: "${SIIM_API_KEY}"  # Set in .env file
+  description: "SIIM Hackathon FHIR server"
+
+# MCP Server configuration - no additional config needed
+# The server will expose all DICOM tools via standard MCP protocol

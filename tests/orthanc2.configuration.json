@@ -72,7 +72,30 @@
     "Ssl": false,
     "QidoCaseSensitive": false,
     "Host": "0.0.0.0",
-    "Port": 8043
+    "Port": 8043,
+    "Servers": {
+      "SIIMHackathon": {
+        "Url": "https://hackathon.siim.org/dicomweb/",
+        "HttpHeaders": {
+          "apikey": "5dcb07ac-0e19-442f-b53d-6c7e96ae3026"
+        },
+        "HasDelete": false,
+        "ChunkedTransfers": true,
+        "HasWadoRsUniversalTransferSyntax": true
+      },
+      "PACSA": {
+        "Url": "http://orthanc:8042/dicom-web/",
+        "HasDelete": true,
+        "ChunkedTransfers": true,
+        "HasWadoRsUniversalTransferSyntax": true
+      },
+      "PACSB": {
+        "Url": "http://orthanc2:8043/dicom-web/",
+        "HasDelete": true,
+        "ChunkedTransfers": true,
+        "HasWadoRsUniversalTransferSyntax": true
+      }
+    }
   },
   // OHIF plugin configuration (built into Orthanc)
   "OHIF": {
@@ -189,32 +212,33 @@
       "AllowFind": true,
       "AllowGet": true,
       "AllowMove": true,
-      "AllowStore": true
-    },
-    "MCPSCU": {
-      "AET": "MCPSCU",
-      "Host": "host.docker.internal",
-      "Port": 11112,
-      "AllowEcho": true,
-      "AllowFind": true,
-      "AllowGet": true,
-      "AllowMove": true,
-      "AllowStore": true
+      "AllowStore": true,
+      "UseDicomTls": true
     }
   },
   "DicomModalitiesInDatabase": false,
   "DicomEchoChecksFind": false,
   "DicomScuTimeout": 30,
   "DicomScuPreferredTransferSyntax": "1.2.840.10008.1.2.1",
+  // DICOM TLS configuration
+  "DicomTlsEnabled": true,
+  "DicomTlsCertificate": "/etc/orthanc/certs/dicom-tls-cert.pem",
+  "DicomTlsPrivateKey": "/etc/orthanc/certs/dicom-tls-key.pem",
+  "DicomTlsTrustedCertificates": "/etc/orthanc/certs/dicom-tls-cert.pem",
+  "DicomTlsRemoteCertificateRequired": false,
+  "DicomTlsMinimumProtocolVersion": 0,
   // Enhanced security and authentication
   "AuthenticationEnabled": false,
   "RegisteredUsers": {},
   "RemoteAccessAllowed": true,
-  "SslEnabled": false,
-  "SslCertificate": "",
+  "SslEnabled": true,
+  "SslCertificate": "/etc/orthanc/certs/https.pem",
+  "SslMinimumProtocolVersion": 4,
   // Enhanced logging
   "LogLevel": "default",
   "LogFile": "",
+  // "HttpsCACertificates": "/etc/ssl/certs/ca-certificates.crt",
+  "HttpsVerifyPeers": false,
   "EnableHttpRequestsLog": true,
   // Enhanced metadata handling
   "OverwriteInstances": false,

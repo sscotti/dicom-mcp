@@ -21,6 +21,11 @@ services:
     volumes:
       - ./orthanc.configuration.json:/etc/orthanc/orthanc.json
       - orthanc_storage:/var/lib/orthanc/db
+      - ../cert-key-combined.pem:/etc/orthanc/certs/https.pem:ro
+      - ../cert.pem:/etc/orthanc/certs/dicom-tls-cert.pem:ro
+      - ../key.pem:/etc/orthanc/certs/dicom-tls-key.pem:ro
+    env_file:
+      - ../.env
     environment:
       - VERBOSE_ENABLED="true"
       - VERBOSE_STARTUP="true"
@@ -45,6 +50,11 @@ services:
     volumes:
       - ./orthanc2.configuration.json:/etc/orthanc/orthanc.json
       - orthanc2_storage:/var/lib/orthanc/db
+      - ../cert-key-combined.pem:/etc/orthanc/certs/https.pem:ro
+      - ../cert.pem:/etc/orthanc/certs/dicom-tls-cert.pem:ro
+      - ../key.pem:/etc/orthanc/certs/dicom-tls-key.pem:ro
+    env_file:
+      - ../.env
     environment:
       - VERBOSE_ENABLED="true"
       - VERBOSE_STARTUP="true"

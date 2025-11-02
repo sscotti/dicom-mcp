@@ -1,0 +1,16 @@
+{
+    "mcpServers": {
+        "dicom-mcp": {
+            "command": "/Users/macbookpro/Desktop/dicom-mcp/venv/bin/python",
+            "args": [
+                "-m",
+                "dicom_mcp",
+                "/Users/macbookpro/Desktop/dicom-mcp/configuration.yaml"
+            ],
+            "env": {
+                "PYTHONPATH": "/Users/macbookpro/Desktop/dicom-mcp/src"
+            },
+            "cwd": "/Users/macbookpro/Desktop/dicom-mcp"
+        }
+    }
+}

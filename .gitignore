@@ -17,3 +17,12 @@ todo
 
 # Environment variables
 .env
+
+# Local MCP config (keep example, ignore local)
+mcp-config.json
+
+# SSL/TLS certificates (development only - self-signed for localhost)
+# These are safe to commit for development, but ignored by default
+# *.pem
+# *.key
+# *.crt

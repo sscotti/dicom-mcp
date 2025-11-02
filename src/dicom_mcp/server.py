@@ -3,14 +3,16 @@ DICOM MCP Server main implementation.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Dict, List, Any, AsyncIterator
+from typing import Dict, List, Any, AsyncIterator, Optional, Tuple
 
 from mcp.server.fastmcp import FastMCP, Context
 
 from .attributes import ATTRIBUTE_PRESETS
 from .dicom_client import DicomClient
+from .fhir_client import FhirClient
 from .config import DicomConfiguration, load_config
 
 # Configure logging
@@ -22,6 +24,7 @@ class DicomContext:
     """Context for the DICOM MCP server."""
     config: DicomConfiguration
     client: DicomClient
+    fhir_client: Optional[FhirClient] = None
 
 
 def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMCP:
@@ -36,7 +39,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         # Get the current node and calling AE title
         current_node = config.nodes[config.current_node]
         
-        # Create client
+        # Create DICOM client
         client = DicomClient(
             host=current_node.host,
             port=current_node.port,
@@ -46,8 +49,18 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         
         logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {config.calling_aet})")
         
+        # Create FHIR client if configured
+        fhir_client = None
+        if config.fhir:
+            api_key = config.fhir.api_key or os.getenv("SIIM_API_KEY")
+            fhir_client = FhirClient(
+                base_url=config.fhir.base_url,
+                api_key=api_key
+            )
+            logger.info(f"FHIR client initialized: {config.fhir.base_url}")
+        
         try:
-            yield DicomContext(config=config, client=client)
+            yield DicomContext(config=config, client=client, fhir_client=fhir_client)
         finally:
             pass
     
@@ -60,29 +73,18 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         """List all configured DICOM nodes and their connection information.
         
         This tool returns information about all configured DICOM nodes in the system
-        and shows which node is currently selected for operations. It also provides
-        information about available calling AE titles.
+        and shows which node is currently selected for operations.
         
         Returns:
-            Dictionary containing:
-            - current_node: The currently selected DICOM node name
-            - nodes: List of all configured node names
-        
-        Example:
-            {
-                "current_node": "pacs1",
-                "nodes": ["pacs1", "pacs2", "orthanc"],
-            }
+            Dictionary containing current node and available nodes
         """
         dicom_ctx = ctx.request_context.lifespan_context
         config = dicom_ctx.config
         
-        current_node =  config.current_node
-        nodes = [{node_name: node.description} for node_name, node in config.nodes.items()]
-
         return {
-            "current_node": current_node,
-            "nodes": nodes,
+            "current_node": config.current_node,
+            "nodes": list(config.nodes.keys()),
+            "status": "success"
         }
     
     @mcp.tool()
@@ -204,8 +206,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         patient_id: str = "", 
         birth_date: str = "", 
         attribute_preset: str = "standard", 
-        additional_attributes: List[str] = None,
-        exclude_attributes: List[str] = None, 
+        additional_attributes: Optional[List[str]] = None,
+        exclude_attributes: Optional[List[str]] = None, 
         ctx: Context = None
     ) -> List[Dict[str, Any]]:
         """Query patients matching the specified criteria from the DICOM node.
@@ -250,8 +252,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 name_pattern=name_pattern,
                 birth_date=birth_date,
                 attribute_preset=attribute_preset,
-                additional_attrs=additional_attributes,
-                exclude_attrs=exclude_attributes
+                additional_attrs=additional_attributes or [],
+                exclude_attrs=exclude_attributes or []
             )
         except Exception as e:
             raise Exception(f"Error querying patients: {str(e)}")
@@ -265,8 +267,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         accession_number: str = "", 
         study_instance_uid: str = "",
         attribute_preset: str = "standard", 
-        additional_attributes: List[str] = None,
-        exclude_attributes: List[str] = None, 
+        additional_attributes: Optional[List[str]] = None,
+        exclude_attributes: Optional[List[str]] = None, 
         ctx: Context = None
     ) -> List[Dict[str, Any]]:
         """Query studies matching the specified criteria from the DICOM node.
@@ -321,8 +323,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 accession_number=accession_number,
                 study_instance_uid=study_instance_uid,
                 attribute_preset=attribute_preset,
-                additional_attrs=additional_attributes,
-                exclude_attrs=exclude_attributes
+                additional_attrs=additional_attributes or [],
+                exclude_attrs=exclude_attributes or []
             )
         except Exception as e:
             raise Exception(f"Error querying studies: {str(e)}")
@@ -335,8 +337,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         series_description: str = "", 
         series_instance_uid: str = "",
         attribute_preset: str = "standard", 
-        additional_attributes: List[str] = None,
-        exclude_attributes: List[str] = None, 
+        additional_attributes: Optional[List[str]] = None,
+        exclude_attributes: Optional[List[str]] = None, 
         ctx: Context = None
     ) -> List[Dict[str, Any]]:
         """Query series within a study from the DICOM node.
@@ -386,8 +388,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 series_number=series_number,
                 series_description=series_description,
                 attribute_preset=attribute_preset,
-                additional_attrs=additional_attributes,
-                exclude_attrs=exclude_attributes
+                additional_attrs=additional_attributes or [],
+                exclude_attrs=exclude_attributes or []
             )
         except Exception as e:
             raise Exception(f"Error querying series: {str(e)}")
@@ -398,8 +400,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         instance_number: str = "", 
         sop_instance_uid: str = "",
         attribute_preset: str = "standard", 
-        additional_attributes: List[str] = None,
-        exclude_attributes: List[str] = None, 
+        additional_attributes: Optional[List[str]] = None,
+        exclude_attributes: Optional[List[str]] = None, 
         ctx: Context = None 
     ) -> List[Dict[str, Any]]:
         """Query individual DICOM instances (images) within a series.
@@ -445,8 +447,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 sop_instance_uid=sop_instance_uid,
                 instance_number=instance_number,
                 attribute_preset=attribute_preset,
-                additional_attrs=additional_attributes,
-                exclude_attrs=exclude_attributes
+                additional_attrs=additional_attributes or [],
+                exclude_attrs=exclude_attributes or []
             )
         except Exception as e:
             raise Exception(f"Error querying instances: {str(e)}")
@@ -583,5 +585,136 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             }
         """
         return ATTRIBUTE_PRESETS
+    
+    # FHIR Tools (only registered if FHIR client is configured)
+    @mcp.tool()
+    def verify_fhir_connection(ctx: Context = None) -> str:
+        """Verify connectivity to the FHIR server.
+        
+        This tool checks if the FHIR server is reachable and returns
+        metadata about the server, including FHIR version.
+        
+        Returns:
+            A message describing the FHIR server connection status
+        
+        Raises:
+            ValueError: If FHIR is not configured
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+        
+        success, message = dicom_ctx.fhir_client.verify_connection()
+        return message
+    
+    @mcp.tool()
+    def fhir_search_patient(
+        name: Optional[str] = None,
+        identifier: Optional[str] = None,
+        birthdate: Optional[str] = None,
+        gender: Optional[str] = None,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Search for Patient resources in the FHIR server.
+        
+        Args:
+            name: Patient name to search for (can include partial matches)
+            identifier: Patient identifier (e.g., MRN)
+            birthdate: Patient birth date (YYYY-MM-DD format)
+            gender: Patient gender (male, female, other, unknown)
+        
+        Returns:
+            FHIR Bundle containing matching Patient resources
+        
+        Example:
+            {
+                "resourceType": "Bundle",
+                "entry": [
+                    {
+                        "resource": {
+                            "resourceType": "Patient",
+                            "id": "example",
+                            "name": [{"family": "Smith", "given": ["John"]}]
+                        }
+                    }
+                ]
+            }
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+        
+        params = {}
+        if name:
+            params["name"] = name
+        if identifier:
+            params["identifier"] = identifier
+        if birthdate:
+            params["birthdate"] = birthdate
+        if gender:
+            params["gender"] = gender
+        
+        try:
+            return dicom_ctx.fhir_client.search_resource("Patient", params)
+        except Exception as e:
+            raise Exception(f"Error searching FHIR patients: {str(e)}")
+    
+    @mcp.tool()
+    def fhir_search_imaging_study(
+        patient_id: Optional[str] = None,
+        modality: Optional[str] = None,
+        study_date: Optional[str] = None,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Search for ImagingStudy resources in the FHIR server.
+        
+        Args:
+            patient_id: Patient ID to filter by
+            modality: Imaging modality (e.g., CT, MR, US)
+            study_date: Study date (YYYY-MM-DD format or range like "2024-01-01:2024-12-31")
+        
+        Returns:
+            FHIR Bundle containing matching ImagingStudy resources
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+        
+        params = {}
+        if patient_id:
+            params["patient"] = patient_id
+        if modality:
+            params["modality"] = modality
+        if study_date:
+            params["date"] = study_date
+        
+        try:
+            return dicom_ctx.fhir_client.search_resource("ImagingStudy", params)
+        except Exception as e:
+            raise Exception(f"Error searching FHIR ImagingStudy: {str(e)}")
+    
+    @mcp.tool()
+    def fhir_read_resource(
+        resource_type: str,
+        resource_id: str,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Read a specific FHIR resource by type and ID.
+        
+        Args:
+            resource_type: FHIR resource type (e.g., "Patient", "ImagingStudy", "Observation")
+            resource_id: The logical ID of the resource
+        
+        Returns:
+            The requested FHIR resource
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+        
+        try:
+            return dicom_ctx.fhir_client.read_resource(resource_type, resource_id)
+        except Exception as e:
+            raise Exception(f"Error reading FHIR resource {resource_type}/{resource_id}: {str(e)}")
     
     return mcp

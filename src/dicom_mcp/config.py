@@ -18,12 +18,14 @@ class DicomNodeConfig(BaseModel):
     description: str = ""
 
 
-class OpenAIConfig(BaseModel):
-    """OpenAI configuration"""
-    api_key: str
-    model: str = "gpt-4o"
-    max_tokens: int = 4000
-    temperature: float = 0.1
+# OpenAI config removed - using standard MCP protocol instead
+
+
+class FhirServerConfig(BaseModel):
+    """Configuration for a FHIR server"""
+    base_url: str
+    api_key: Optional[str] = None
+    description: str = ""
 
 
 class DicomConfiguration(BaseModel):
@@ -31,7 +33,8 @@ class DicomConfiguration(BaseModel):
     nodes: Dict[str, DicomNodeConfig]
     current_node: str
     calling_aet: str
-    openai: Optional[OpenAIConfig] = None
+    fhir: Optional[FhirServerConfig] = None
+    # openai config removed - using standard MCP protocol
 
 def load_config(config_path: str) -> DicomConfiguration:
     """Load DICOM configuration from YAML file.
@@ -67,6 +70,13 @@ def load_config(config_path: str) -> DicomConfiguration:
         # Expand environment variables
         content = os.path.expandvars(content)
         data = yaml.safe_load(content)
+    
+    # Expand FHIR API key from environment if using ${SIIM_API_KEY}
+    if data.get("fhir") and data["fhir"].get("api_key"):
+        fhir_api_key = data["fhir"]["api_key"]
+        if fhir_api_key.startswith("${") and fhir_api_key.endswith("}"):
+            env_var = fhir_api_key[2:-1]
+            data["fhir"]["api_key"] = os.getenv(env_var) or fhir_api_key
     
     try:
         return DicomConfiguration(**data)
