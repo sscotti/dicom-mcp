@@ -104,6 +104,19 @@ pytest # uploads dummy pdf data to ORTHANC server
 
 UI at [http://localhost:8042](http://localhost:8042)
 
+### (Optional) Local HAPI FHIR Server
+
+For local FHIR testing, you can run a HAPI FHIR server:
+
+```bash
+cd tests
+docker-compose -f docker-compose-fhir.yaml up -d
+```
+
+HAPI FHIR will be available at [http://localhost:8080/fhir](http://localhost:8080/fhir)
+
+See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for detailed configuration options including Firely test server and SIIM integration.
+
 ### 🔌 Using with MCP Jam
 
 **MCP Jam** is the recommended tool for testing and exploring your DICOM MCP server. It offers a beautiful interface with **Guest Mode** for immediate testing without any setup.
@@ -189,6 +202,16 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 * `move_series` / `move_study` - Transfer DICOM data
 * `switch_dicom_node` - Change active server
 * `get_attribute_presets` - Show query detail levels
+
+**Available FHIR Tools (when FHIR is configured):**
+
+* `verify_fhir_connection` - Test FHIR server connectivity
+* `list_fhir_servers` - List configured FHIR servers
+* `fhir_search_patient` - Search for Patient resources
+* `fhir_search_imaging_study` - Search for ImagingStudy resources
+* `fhir_read_resource` - Read any FHIR resource by type and ID
+
+See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for configuration details.
 
 ## 🛠️ Tools Overview
 

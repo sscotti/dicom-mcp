@@ -16,10 +16,29 @@ current_node: "main"
 calling_aet: "MCPSCU"
 
 # FHIR server configuration (optional)
-fhir:
-  base_url: "http://hackathon.siim.org/fhir"  # Try HTTP if HTTPS fails
-  api_key: "${SIIM_API_KEY}"  # Set in .env file
-  description: "SIIM Hackathon FHIR server"
+# You can configure multiple FHIR servers and switch between them
+fhir_servers:
+  firely:
+    base_url: "https://server.fire.ly"
+    description: "Firely FHIR Test Server (public, no API key needed)"
+  
+  siim:
+    base_url: "https://hackathon.siim.org/fhir"
+    api_key: "${SIIM_API_KEY}"  # Set in .env file
+    description: "SIIM Hackathon FHIR server"
+  
+  # Uncomment to use a local HAPI FHIR server
+  # hapi_local:
+  #   base_url: "http://localhost:8080/fhir"
+  #   description: "Local HAPI FHIR server"
+
+current_fhir: "firely"  # Active FHIR server: firely, siim, or hapi_local
+
+# Legacy single FHIR server configuration (deprecated - use fhir_servers above)
+# fhir:
+#   base_url: "https://server.fire.ly"
+#   api_key: null
+#   description: "Firely FHIR Test Server"
 
 # MCP Server configuration - no additional config needed
 # The server will expose all DICOM tools via standard MCP protocol

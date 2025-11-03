@@ -7,7 +7,8 @@ abstracting the details of DICOM networking.
 import os
 import time
 import tempfile
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
+import ssl
 
 from pydicom import dcmread
 from pydicom.dataset import Dataset
@@ -28,7 +29,8 @@ from .attributes import get_attributes_for_level
 class DicomClient:
     """DICOM networking client that handles communication with DICOM nodes."""
     
-    def __init__(self, host: str, port: int, calling_aet: str, called_aet: str):
+    def __init__(self, host: str, port: int, calling_aet: str, called_aet: str,
+                 tls_mode: str = "auto"):
         """Initialize DICOM client.
         
         Args:
@@ -36,11 +38,16 @@ class DicomClient:
             port: DICOM node port
             calling_aet: Local AE title (our AE title)
             called_aet: Remote AE title (the node we're connecting to)
+            tls_mode: One of {"auto", "tls", "plain"}. In "auto" mode the client
+                      will attempt a TLS association first and fall back to plain
+                      if TLS fails to establish. "tls" forces TLS; "plain" forces
+                      a non-TLS association.
         """
         self.host = host
         self.port = port
         self.called_aet = called_aet
         self.calling_aet = calling_aet
+        self.tls_mode = tls_mode
         
         # Create the Application Entity
         self.ae = AE(ae_title=calling_aet)
@@ -56,6 +63,54 @@ class DicomClient:
         
         # Add specific storage context for PDF - instead of adding all storage contexts
         self.ae.add_requested_context(EncapsulatedPDFStorage)
+
+    def _build_permissive_ssl_context(self) -> ssl.SSLContext:
+        """Create a permissive SSL context suitable for local/self-signed servers.
+        
+        This disables certificate verification and hostname checking. Use only for
+        development.
+        """
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    def _associate(self, evt_handlers: Optional[List[Tuple]] = None, ext_neg: Optional[List[Any]] = None):
+        """Create an association according to tls_mode with fallback logic.
+        
+        Returns the established association or a non-established association object
+        if all attempts fail.
+        """
+        evt_handlers = evt_handlers or []
+        ext_neg = ext_neg or []
+
+        def assoc_tls():
+            # pynetdicom expects tls_args as a tuple: (ssl_context, server_hostname)
+            ctx = self._build_permissive_ssl_context()
+            tls_args = (ctx, self.host)
+            return self.ae.associate(
+                self.host, self.port, ae_title=self.called_aet,
+                evt_handlers=evt_handlers, ext_neg=ext_neg, tls_args=tls_args
+            )
+
+        def assoc_plain():
+            return self.ae.associate(
+                self.host, self.port, ae_title=self.called_aet,
+                evt_handlers=evt_handlers, ext_neg=ext_neg
+            )
+
+        if self.tls_mode == "tls":
+            return assoc_tls()
+        if self.tls_mode == "plain":
+            return assoc_plain()
+
+        # auto: try TLS first, then plain
+        assoc = assoc_tls()
+        if assoc.is_established:
+            return assoc
+        # Fallback to plain
+        assoc2 = assoc_plain()
+        return assoc2
     
     def verify_connection(self) -> Tuple[bool, str]:
         """Verify connectivity to the DICOM node using C-ECHO.
@@ -63,8 +118,8 @@ class DicomClient:
         Returns:
             Tuple of (success, message)
         """
-        # Associate with the DICOM node
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        # Associate with the DICOM node (TLS-aware)
+        assoc = self._associate()
         
         if assoc.is_established:
             # Send C-ECHO request
@@ -93,8 +148,8 @@ class DicomClient:
         Raises:
             Exception: If association fails
         """
-        # Associate with the DICOM node
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        # Associate with the DICOM node (TLS-aware)
+        assoc = self._associate()
         
         if not assoc.is_established:
             raise Exception(f"Failed to associate with DICOM node at {self.host}:{self.port} (Called AE: {self.called_aet}, Calling AE: {self.calling_aet})")
@@ -319,8 +374,8 @@ class DicomClient:
         ds.QueryRetrieveLevel = "SERIES"
         ds.SeriesInstanceUID = series_instance_uid
         
-        # Associate with the DICOM node
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        # Associate with the DICOM node (TLS-aware)
+        assoc = self._associate()
         
         if not assoc.is_established:
             return {
@@ -409,8 +464,8 @@ class DicomClient:
         ds.QueryRetrieveLevel = "STUDY"
         ds.StudyInstanceUID = study_instance_uid
         
-        # Associate with the DICOM node
-        assoc = self.ae.associate(self.host, self.port, ae_title=self.called_aet)
+        # Associate with the DICOM node (TLS-aware)
+        assoc = self._associate()
         
         if not assoc.is_established:
             return {
@@ -544,15 +599,8 @@ class DicomClient:
         # during the C-GET operation
         role = build_role(EncapsulatedPDFStorage, scp_role=True)
         
-        # Associate with the DICOM node, providing the event handlers during association
-        # This is the correct way to handle events in pynetdicom
-        assoc = self.ae.associate(
-            self.host, 
-            self.port, 
-            ae_title=self.called_aet,
-            evt_handlers=handlers,
-            ext_neg=[role]  # Add extended negotiation for SCP/SCU role selection
-        )
+        # Associate with the DICOM node, providing the event handlers during association (TLS-aware)
+        assoc = self._associate(evt_handlers=handlers, ext_neg=[role])
         
         if not assoc.is_established:
             return {

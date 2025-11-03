@@ -33,6 +33,9 @@ class DicomConfiguration(BaseModel):
     nodes: Dict[str, DicomNodeConfig]
     current_node: str
     calling_aet: str
+    fhir_servers: Optional[Dict[str, FhirServerConfig]] = None
+    current_fhir: Optional[str] = None
+    # Legacy: support old single fhir config for backwards compatibility
     fhir: Optional[FhirServerConfig] = None
     # openai config removed - using standard MCP protocol
 
@@ -71,12 +74,22 @@ def load_config(config_path: str) -> DicomConfiguration:
         content = os.path.expandvars(content)
         data = yaml.safe_load(content)
     
-    # Expand FHIR API key from environment if using ${SIIM_API_KEY}
+    # Expand FHIR API keys from environment variables
+    # Handle legacy single fhir config
     if data.get("fhir") and data["fhir"].get("api_key"):
         fhir_api_key = data["fhir"]["api_key"]
         if fhir_api_key.startswith("${") and fhir_api_key.endswith("}"):
             env_var = fhir_api_key[2:-1]
             data["fhir"]["api_key"] = os.getenv(env_var) or fhir_api_key
+    
+    # Handle multiple FHIR servers
+    if data.get("fhir_servers"):
+        for server_name, server_config in data["fhir_servers"].items():
+            if server_config.get("api_key"):
+                fhir_api_key = server_config["api_key"]
+                if fhir_api_key.startswith("${") and fhir_api_key.endswith("}"):
+                    env_var = fhir_api_key[2:-1]
+                    server_config["api_key"] = os.getenv(env_var) or fhir_api_key
     
     try:
         return DicomConfiguration(**data)

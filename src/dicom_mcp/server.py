@@ -50,14 +50,31 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         logger.info(f"DICOM client initialized: {config.current_node} (calling AE: {config.calling_aet})")
         
         # Create FHIR client if configured
+        # Support multiple FHIR servers (new) or single fhir (legacy)
         fhir_client = None
-        if config.fhir:
-            api_key = config.fhir.api_key or os.getenv("SIIM_API_KEY")
+        fhir_config = None
+        
+        if config.fhir_servers and config.current_fhir:
+            # Multiple FHIR servers configured
+            if config.current_fhir in config.fhir_servers:
+                fhir_config = config.fhir_servers[config.current_fhir]
+            else:
+                logger.warning(f"Current FHIR server '{config.current_fhir}' not found, using first available")
+                if config.fhir_servers:
+                    config.current_fhir = list(config.fhir_servers.keys())[0]
+                    fhir_config = config.fhir_servers[config.current_fhir]
+        elif config.fhir:
+            # Legacy single FHIR server configuration
+            fhir_config = config.fhir
+            logger.info("Using legacy single FHIR server configuration")
+        
+        if fhir_config:
+            api_key = fhir_config.api_key or os.getenv("SIIM_API_KEY")
             fhir_client = FhirClient(
-                base_url=config.fhir.base_url,
+                base_url=fhir_config.base_url,
                 api_key=api_key
             )
-            logger.info(f"FHIR client initialized: {config.fhir.base_url}")
+            logger.info(f"FHIR client initialized: {fhir_config.base_url} (server: {config.current_fhir or 'default'})")
         
         try:
             yield DicomContext(config=config, client=client, fhir_client=fhir_client)
@@ -602,7 +619,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         """
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
-            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
         
         success, message = dicom_ctx.fhir_client.verify_connection()
         return message
@@ -642,7 +659,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         """
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
-            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
         
         params = {}
         if name:
@@ -678,7 +695,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         """
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
-            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
         
         params = {}
         if patient_id:
@@ -710,11 +727,43 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         """
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
-            raise ValueError("FHIR server is not configured. Add 'fhir' section to configuration.yaml")
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
         
         try:
             return dicom_ctx.fhir_client.read_resource(resource_type, resource_id)
         except Exception as e:
             raise Exception(f"Error reading FHIR resource {resource_type}/{resource_id}: {str(e)}")
+    
+    @mcp.tool()
+    def list_fhir_servers(ctx: Context = None) -> Dict[str, Any]:
+        """List all configured FHIR servers and show which one is currently active.
+        
+        Returns:
+            Dictionary containing current FHIR server and available servers
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        config = dicom_ctx.config
+        
+        servers = {}
+        if config.fhir_servers:
+            for name, server_config in config.fhir_servers.items():
+                servers[name] = {
+                    "base_url": server_config.base_url,
+                    "description": server_config.description,
+                    "has_api_key": bool(server_config.api_key)
+                }
+        elif config.fhir:
+            # Legacy single server
+            servers["default"] = {
+                "base_url": config.fhir.base_url,
+                "description": config.fhir.description,
+                "has_api_key": bool(config.fhir.api_key)
+            }
+        
+        return {
+            "current_fhir": config.current_fhir or "default",
+            "servers": servers,
+            "status": "success"
+        }
     
     return mcp
