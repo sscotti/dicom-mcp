@@ -766,4 +766,78 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "status": "success"
         }
     
+    @mcp.tool()
+    def fhir_create_resource(
+        resource: Dict[str, Any],
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Create a new FHIR resource on the server.
+        
+        This tool allows you to create any FHIR resource type (Patient, ImagingStudy,
+        ServiceRequest, DiagnosticReport, etc.). The resource must include a
+        "resourceType" field.
+        
+        Args:
+            resource: The FHIR resource to create as a dictionary. Must include
+                     "resourceType" field. Optionally include "id" for client-assigned IDs.
+        
+        Returns:
+            The created FHIR resource with server-assigned ID and metadata
+        
+        Example:
+            Create a Patient:
+            {
+                "resourceType": "Patient",
+                "identifier": [{"system": "http://hospital.example.org/mrn", "value": "MRN001"}],
+                "name": [{"family": "Smith", "given": ["John"]}],
+                "birthDate": "1985-03-15",
+                "gender": "male"
+            }
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
+        
+        try:
+            return dicom_ctx.fhir_client.create_resource(resource)
+        except Exception as e:
+            raise Exception(f"Error creating FHIR resource: {str(e)}")
+    
+    @mcp.tool()
+    def fhir_update_resource(
+        resource: Dict[str, Any],
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Update an existing FHIR resource on the server.
+        
+        This tool allows you to update any FHIR resource. The resource must include
+        both "resourceType" and "id" fields to identify the resource to update.
+        
+        Args:
+            resource: The FHIR resource to update as a dictionary. Must include
+                     both "resourceType" and "id" fields.
+        
+        Returns:
+            The updated FHIR resource with server metadata
+        
+        Example:
+            Update a Patient's name:
+            {
+                "resourceType": "Patient",
+                "id": "patient-mrn001",
+                "identifier": [{"system": "http://hospital.example.org/mrn", "value": "MRN001"}],
+                "name": [{"family": "Smith", "given": ["John", "Robert"]}],
+                "birthDate": "1985-03-15",
+                "gender": "male"
+            }
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
+        
+        try:
+            return dicom_ctx.fhir_client.update_resource(resource)
+        except Exception as e:
+            raise Exception(f"Error updating FHIR resource: {str(e)}")
+    
     return mcp

@@ -28,17 +28,10 @@ fhir_servers:
     description: "SIIM Hackathon FHIR server"
   
   # Uncomment to use a local HAPI FHIR server
-  # hapi_local:
-  #   base_url: "http://localhost:8080/fhir"
-  #   description: "Local HAPI FHIR server"
+  hapi_local:
+    base_url: "http://localhost:8080/fhir"
+    description: "Local HAPI FHIR server"
 
-current_fhir: "firely"  # Active FHIR server: firely, siim, or hapi_local
+current_fhir: "hapi_local"  # Active FHIR server: firely, siim, or hapi_local, make sure to start the local hapi fhir server before starting the MCP server
 
-# Legacy single FHIR server configuration (deprecated - use fhir_servers above)
-# fhir:
-#   base_url: "https://server.fire.ly"
-#   api_key: null
-#   description: "Firely FHIR Test Server"
-
-# MCP Server configuration - no additional config needed
-# The server will expose all DICOM tools via standard MCP protocol
+# The server will expose all DICOM tools and FHIR tools via standard MCP protocol

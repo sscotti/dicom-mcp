@@ -219,8 +219,42 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 * `fhir_search_patient` - Search for Patient resources
 * `fhir_search_imaging_study` - Search for ImagingStudy resources
 * `fhir_read_resource` - Read any FHIR resource by type and ID
+* `fhir_create_resource` - Create new FHIR resources (Patient, ImagingStudy, ServiceRequest, etc.)
+* `fhir_update_resource` - Update existing FHIR resources
 
 See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for configuration details.
+
+### 🧪 Synthetic Data for Testing
+
+To test orchestration workflows, populate your local HAPI FHIR server with synthetic data:
+
+```bash
+# Start HAPI FHIR server (if not already running)
+docker-compose -f tests/docker-compose-fhir.yaml up -d
+
+# Populate synthetic data
+python tests/populate_synthetic_fhir_data.py
+```
+
+This creates:
+
+* 5 test patients with realistic demographics
+* ServiceRequests (orders) for imaging studies
+* ImagingStudies linked to patients
+* DiagnosticReports with findings
+
+See [Orchestration Guide](ORCHESTRATION.md) for workflow examples using this data.
+
+### 🔄 Orchestration Workflows
+
+The MCP server enables end-to-end radiology workflows combining FHIR and DICOM:
+
+* **Order Entry**: Create ServiceRequest in FHIR
+* **Study Acquisition**: Link DICOM studies to FHIR ImagingStudies
+* **Reporting**: Generate DiagnosticReports from DICOM PDFs
+* **Workflow Management**: Track orders through completion
+
+See [ORCHESTRATION.md](ORCHESTRATION.md) for detailed workflow examples and patterns.
 
 ## 🛠️ Tools Overview
 
