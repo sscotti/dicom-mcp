@@ -18,9 +18,13 @@ services:
       - "8080:8080"
     environment:
       # HAPI server configuration
-      - SPRING_DATASOURCE_URL=jdbc:derby:directory:target/jpaserver_derby_files;create=true
+      # Using Derby embedded database (file-based, stored in /data/hapi-fhir)
+      - SPRING_DATASOURCE_URL=jdbc:derby:directory:/data/hapi-fhir;create=true
       # Enable CORS for web access
       - SPRING_BOOT_ADMIN_CLIENT_URL=http://localhost:8080
+    volumes:
+      # Persist Derby database files to host
+      - hapi-fhir-data:/data/hapi-fhir
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/fhir/metadata"]
       interval: 30s
@@ -29,6 +33,10 @@ services:
       start_period: 60s
     networks:
       - dicom-network
+
+volumes:
+  # Named volume for HAPI FHIR Derby database persistence
+  hapi-fhir-data:
 
 networks:
   dicom-network:

@@ -1,19 +1,16 @@
 # DICOM MCP Server - Medical Imaging AI Integration 🏥
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![PyPI Version](https://img.shields.io/pypi/v/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/dicom-mcp.svg)](https://pypi.org/project/dicom-mcp/)  
-[![MCP Python SKD]](https://github.com/modelcontextprotocol/python-sdk)
-[![MCP JAM]](https://www.mcpjam.com) npx -y @mcpjam/inspector@latest
+[![MCP Python SDK](https://img.shields.io/badge/MCP-Python%20SDK-blue)](https://github.com/modelcontextprotocol/python-sdk)
+[![MCP JAM](https://img.shields.io/badge/MCP-JAM-orange)](https://www.mcpjam.com)
 
-Forked from:  <https://github.com/ChristianHinge/dicom-mcp>
+Forked from:  <https://github.com/ChristianHinge/dicom-mcp> and modified.
 
 The forked version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.
 
 TO DO:  Integrate SIIM Orthanc and FHIR server and build toolset for FHIR and DIcomWeb ?
 
-The `dicom-mcp` server enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.) using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.
+Enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.) using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development.
 
 ```text
 ---------------------------------------------------------------------
@@ -82,7 +79,19 @@ nodes:
     description: "Local Orthanc DICOM server (Secondary)"
 
 current_node: "main"
-calling_aet: "MCPSCU" 
+calling_aet: "MCPSCU"
+
+# FHIR server configuration (optional)
+# You can configure multiple FHIR servers and switch between them
+fhir_servers:
+  firely:
+    base_url: "https://server.fire.ly"
+    description: "Firely FHIR Test Server (public, no API key needed)"
+  
+  siim:
+    base_url: "https://hackathon.siim.org/fhir"
+    api_key: "${SIIM_API_KEY}"  # Set in .env file
+    description: "SIIM Hackathon FHIR server"
 ```
 
 > [!WARNING]
@@ -119,7 +128,7 @@ See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for detailed configuration optio
 
 ### 🔌 Using with MCP Jam
 
-**MCP Jam** is the recommended tool for testing and exploring your DICOM MCP server. It offers a beautiful interface with **Guest Mode** for immediate testing without any setup.
+**MCP Jam** is the recommended tool for testing and exploring your DICOM MCP server. It offers an interface with **Guest Mode** for immediate testing without any setup.
 
 **Start MCP Jam:**
 
