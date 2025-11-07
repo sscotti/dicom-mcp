@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+databases/
 .pytest_cache/
 .qodo/
 *.py[oc]

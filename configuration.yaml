@@ -35,3 +35,12 @@ fhir_servers:
 current_fhir: "hapi_local"  # Active FHIR server: firely, siim, or hapi_local, make sure to start the local hapi fhir server before starting the MCP server
 
 # The server will expose all DICOM tools and FHIR tools via standard MCP protocol
+
+# Mini-RIS MySQL database configuration (optional)
+mini_ris:
+  host: "localhost"
+  port: 3306
+  user: "orthanc_ris_app"
+  password: "${MINI_RIS_DB_PASSWORD}"
+  database: "orthanc_ris"
+  pool_size: 5

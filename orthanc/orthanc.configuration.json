@@ -18,14 +18,14 @@
         "/usr/share/orthanc/plugins-available/libOrthancExplorer2.so",
         "/usr/share/orthanc/plugins-available/libOrthancOHIF.so",
         "/usr/share/orthanc/plugins-available/libStoneWebViewer.so",
-        "/usr/share/orthanc/plugins-available/libOrthancVolView.so"
+        "/usr/share/orthanc/plugins-available/libOrthancVolView.so",
         // Additional available plugins - DISABLED (uncomment to enable)
         // "/usr/share/orthanc/plugins-available/libOrthancJava.so",  // Requires JVM
-        // "/usr/share/orthanc/plugins-available/libOrthancPython.so",  // Python scripting
+        "/usr/share/orthanc/plugins-available/libOrthancPython.so",
         // "/usr/share/orthanc/plugins-available/libOrthancWebViewer.so",  // Legacy web viewer
         // "/usr/share/orthanc/plugins-available/libOsimisWebViewer.so",  // Osimis web viewer
         // "/usr/share/orthanc/plugins-available/libOsimisWebViewerAlpha.so",  // Osimis alpha
-        // "/usr/share/orthanc/plugins-available/libOrthancWSI.so",  // Whole slide imaging
+        "/usr/share/orthanc/plugins-available/libOrthancWSI.so",
         // "/usr/share/orthanc/plugins-available/libOrthancSTL.so",  // STL mesh export
         // "/usr/share/orthanc/plugins-available/libOrthancNeuro.so",  // Neuroimaging tools
         // "/usr/share/orthanc/plugins-available/libOrthancIndexer.so",  // Advanced indexing
@@ -44,10 +44,10 @@
         // Utility plugins - DISABLED
         // "/usr/share/orthanc/plugins-available/libMultitenantDicom.so",  // Multi-tenancy
         // "/usr/share/orthanc/plugins-available/libDelayedDeletion.so",  // Delayed deletion
-        // "/usr/share/orthanc/plugins-available/libConnectivityChecks.so",  // Connectivity checks
+        "/usr/share/orthanc/plugins-available/libConnectivityChecks.so",
         // "/usr/share/orthanc/plugins-available/libHousekeeper.so",  // Housekeeping tasks
         // "/usr/share/orthanc/plugins-available/libServeFolders.so",  // Serve static folders
-        // "/usr/share/orthanc/plugins-available/libModalityWorklists.so"  // Modality worklists
+        "/usr/share/orthanc/plugins-available/libModalityWorklists.so"
     ],
     // PostgreSQL plugin configuration
     "PostgreSQL": {
@@ -79,7 +79,7 @@
                 "ChunkedTransfers": true,
                 "HasWadoRsUniversalTransferSyntax": true,
                 "HttpHeaders": {
-                    "apikey": "5dcb07ac-0e19-442f-b53d-6c7e96ae3026"
+                    "apikey": "REPLACE_WITH_SIIM_API_KEY"
                 }
             },
             "PACSA": {

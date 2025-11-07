@@ -28,6 +28,17 @@ class FhirServerConfig(BaseModel):
     description: str = ""
 
 
+class MiniRisDatabaseConfig(BaseModel):
+    """Configuration for the mini-RIS MySQL database."""
+
+    host: str = "localhost"
+    port: int = 3306
+    user: str
+    password: str
+    database: str = "orthanc_ris"
+    pool_size: int = 5
+
+
 class DicomConfiguration(BaseModel):
     """Complete DICOM configuration"""
     nodes: Dict[str, DicomNodeConfig]
@@ -37,6 +48,7 @@ class DicomConfiguration(BaseModel):
     current_fhir: Optional[str] = None
     # Legacy: support old single fhir config for backwards compatibility
     fhir: Optional[FhirServerConfig] = None
+    mini_ris: Optional[MiniRisDatabaseConfig] = None
     # openai config removed - using standard MCP protocol
 
 def load_config(config_path: str) -> DicomConfiguration:
@@ -90,6 +102,13 @@ def load_config(config_path: str) -> DicomConfiguration:
                 if fhir_api_key.startswith("${") and fhir_api_key.endswith("}"):
                     env_var = fhir_api_key[2:-1]
                     server_config["api_key"] = os.getenv(env_var) or fhir_api_key
+
+    mini_ris_config = data.get("mini_ris")
+    if mini_ris_config and mini_ris_config.get("password"):
+        password_value = mini_ris_config["password"]
+        if password_value.startswith("${") and password_value.endswith("}"):
+            env_var = password_value[2:-1]
+            mini_ris_config["password"] = os.getenv(env_var) or password_value
     
     try:
         return DicomConfiguration(**data)

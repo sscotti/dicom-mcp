@@ -1,0 +1,116 @@
+version: "3.9"
+
+services:
+  # PostgreSQL database backing the Orthanc instances
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: orthanc
+      POSTGRES_PASSWORD: orthanc
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - dicom-network
+
+  # Primary Orthanc server configured with plugins and TLS
+  orthanc:
+    image: orthancteam/orthanc:25.10.5-full
+    ports:
+      - "4242:4242"
+      - "8042:8042"
+    volumes:
+      - ./orthanc/orthanc.configuration.json:/etc/orthanc/orthanc.json
+      - orthanc_storage:/var/lib/orthanc/db
+      - ./cert-key-combined.pem:/etc/orthanc/certs/https.pem:ro
+      - ./cert.pem:/etc/orthanc/certs/dicom-tls-cert.pem:ro
+      - ./key.pem:/etc/orthanc/certs/dicom-tls-key.pem:ro
+    env_file:
+      - ./.env
+    environment:
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_VERBOSE=true
+      - ORTHANC__POSTGRESQL_HOST=postgres
+      - ORTHANC__POSTGRESQL_DATABASE=orthanc1
+      - ORTHANC__POSTGRESQL_USERNAME=orthanc
+      - ORTHANC__POSTGRESQL_PASSWORD=orthanc
+    depends_on:
+      - postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - dicom-network
+
+  # Secondary Orthanc server for peer-to-peer workflows
+  orthanc2:
+    image: orthancteam/orthanc:25.10.5-full
+    ports:
+      - "4243:4243"
+      - "8043:8043"
+    volumes:
+      - ./orthanc/orthanc2.configuration.json:/etc/orthanc/orthanc.json
+      - orthanc2_storage:/var/lib/orthanc/db
+      - ./cert-key-combined.pem:/etc/orthanc/certs/https.pem:ro
+      - ./cert.pem:/etc/orthanc/certs/dicom-tls-cert.pem:ro
+      - ./key.pem:/etc/orthanc/certs/dicom-tls-key.pem:ro
+    env_file:
+      - ./.env
+    environment:
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_VERBOSE=true
+      - ORTHANC__POSTGRESQL_HOST=postgres
+      - ORTHANC__POSTGRESQL_DATABASE=orthanc2
+      - ORTHANC__POSTGRESQL_USERNAME=orthanc
+      - ORTHANC__POSTGRESQL_PASSWORD=orthanc
+    depends_on:
+      - postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - dicom-network
+
+  # HAPI FHIR server for local FHIR workflows
+  hapi-fhir:
+    image: hapiproject/hapi:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_BOOT_ADMIN_CLIENT_URL=http://localhost:8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/fhir/metadata"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dicom-network
+
+  # MySQL instance to support the mini-RIS database
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: orthanc_ris_root
+      MYSQL_DATABASE: orthanc_ris
+      MYSQL_USER: orthanc_ris_app
+      MYSQL_PASSWORD: orthanc_ris_app
+    volumes:
+      - mysql_data:/var/lib/mysql
+    # Place future mini-RIS initialization scripts under ./mysql and
+    # bind-mount them when ready.
+    networks:
+      - dicom-network
+
+volumes:
+  postgres_data:
+  orthanc_storage:
+  orthanc2_storage:
+  mysql_data:
+
+networks:
+  dicom-network:
+    driver: bridge
+

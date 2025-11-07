@@ -11,22 +11,21 @@
   "Plugins": [
     // Core plugins - ENABLED
     "/usr/share/orthanc/plugins-available/libOrthancDicomWeb.so",
+    "/usr/share/orthanc/plugins-available/libOrthancPostgreSQLIndex.so",
+    "/usr/share/orthanc/plugins-available/libOrthancPostgreSQLStorage.so",
     "/usr/share/orthanc/plugins-available/libOrthancGdcm.so",
     "/usr/share/orthanc/plugins-available/libOrthancTransfers.so",
     "/usr/share/orthanc/plugins-available/libOrthancExplorer2.so",
     "/usr/share/orthanc/plugins-available/libOrthancOHIF.so",
     "/usr/share/orthanc/plugins-available/libStoneWebViewer.so",
-    "/usr/share/orthanc/plugins-available/libOrthancVolView.so"
-    // PostgreSQL plugins - DISABLED (this instance uses file storage)
-    // "/usr/share/orthanc/plugins-available/libOrthancPostgreSQLIndex.so",
-    // "/usr/share/orthanc/plugins-available/libOrthancPostgreSQLStorage.so",
+    "/usr/share/orthanc/plugins-available/libOrthancVolView.so",
     // Additional available plugins - DISABLED (uncomment to enable)
     // "/usr/share/orthanc/plugins-available/libOrthancJava.so",  // Requires JVM
-    // "/usr/share/orthanc/plugins-available/libOrthancPython.so",  // Python scripting
+    "/usr/share/orthanc/plugins-available/libOrthancPython.so",
     // "/usr/share/orthanc/plugins-available/libOrthancWebViewer.so",  // Legacy web viewer
     // "/usr/share/orthanc/plugins-available/libOsimisWebViewer.so",  // Osimis web viewer
     // "/usr/share/orthanc/plugins-available/libOsimisWebViewerAlpha.so",  // Osimis alpha
-    // "/usr/share/orthanc/plugins-available/libOrthancWSI.so",  // Whole slide imaging
+    "/usr/share/orthanc/plugins-available/libOrthancWSI.so",
     // "/usr/share/orthanc/plugins-available/libOrthancSTL.so",  // STL mesh export
     // "/usr/share/orthanc/plugins-available/libOrthancNeuro.so",  // Neuroimaging tools
     // "/usr/share/orthanc/plugins-available/libOrthancIndexer.so",  // Advanced indexing
@@ -37,7 +36,7 @@
     // "/usr/share/orthanc/plugins-available/libOrthancGoogleCloudStorage.so",
     // "/usr/share/orthanc/plugins-available/libOrthancAwsS3Storage.so",
     // "/usr/share/orthanc/plugins-available/libAdvancedStorage.so",
-    // Database plugins - DISABLED (using file storage)
+    // Database plugins - DISABLED (using PostgreSQL above)
     // "/usr/share/orthanc/plugins-available/libOrthancMySQLIndex.so",
     // "/usr/share/orthanc/plugins-available/libOrthancMySQLStorage.so",
     // "/usr/share/orthanc/plugins-available/libOrthancOdbcIndex.so",
@@ -45,10 +44,10 @@
     // Utility plugins - DISABLED
     // "/usr/share/orthanc/plugins-available/libMultitenantDicom.so",  // Multi-tenancy
     // "/usr/share/orthanc/plugins-available/libDelayedDeletion.so",  // Delayed deletion
-    // "/usr/share/orthanc/plugins-available/libConnectivityChecks.so",  // Connectivity checks
+    "/usr/share/orthanc/plugins-available/libConnectivityChecks.so",
     // "/usr/share/orthanc/plugins-available/libHousekeeper.so",  // Housekeeping tasks
     // "/usr/share/orthanc/plugins-available/libServeFolders.so",  // Serve static folders
-    // "/usr/share/orthanc/plugins-available/libModalityWorklists.so"  // Modality worklists
+    "/usr/share/orthanc/plugins-available/libModalityWorklists.so"
   ],
   // PostgreSQL plugin configuration
   "PostgreSQL": {
@@ -77,7 +76,7 @@
       "SIIMHackathon": {
         "Url": "https://hackathon.siim.org/dicomweb/",
         "HttpHeaders": {
-          "apikey": "5dcb07ac-0e19-442f-b53d-6c7e96ae3026"
+          "apikey": "REPLACE_WITH_SIIM_API_KEY"
         },
         "HasDelete": false,
         "ChunkedTransfers": true,

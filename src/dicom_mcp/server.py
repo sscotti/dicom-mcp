@@ -13,6 +13,7 @@ from mcp.server.fastmcp import FastMCP, Context
 from .attributes import ATTRIBUTE_PRESETS
 from .dicom_client import DicomClient
 from .fhir_client import FhirClient
+from .mysql_client import MiniRisClient, MiniRisConnectionSettings
 from .config import DicomConfiguration, load_config
 
 # Configure logging
@@ -25,6 +26,7 @@ class DicomContext:
     config: DicomConfiguration
     client: DicomClient
     fhir_client: Optional[FhirClient] = None
+    mini_ris_client: Optional[MiniRisClient] = None
 
 
 def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMCP:
@@ -76,8 +78,36 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             )
             logger.info(f"FHIR client initialized: {fhir_config.base_url} (server: {config.current_fhir or 'default'})")
         
+        mini_ris_client: Optional[MiniRisClient] = None
+
+        if config.mini_ris:
+            try:
+                mini_ris_settings = MiniRisConnectionSettings(
+                    host=config.mini_ris.host,
+                    port=config.mini_ris.port,
+                    user=config.mini_ris.user,
+                    password=config.mini_ris.password,
+                    database=config.mini_ris.database,
+                    pool_size=config.mini_ris.pool_size,
+                )
+                mini_ris_client = MiniRisClient(mini_ris_settings)
+                # Optional connectivity check
+                mini_ris_client.ping()
+                logger.info(
+                    "Mini-RIS MySQL client initialized (host=%s, db=%s)",
+                    config.mini_ris.host,
+                    config.mini_ris.database,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to initialize Mini-RIS client: %s", exc)
+
         try:
-            yield DicomContext(config=config, client=client, fhir_client=fhir_client)
+            yield DicomContext(
+                config=config,
+                client=client,
+                fhir_client=fhir_client,
+                mini_ris_client=mini_ris_client,
+            )
         finally:
             pass
     
@@ -766,6 +796,43 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "status": "success"
         }
     
+    @mcp.tool()
+    def list_mini_ris_patients(
+        mrn: Optional[str] = None,
+        name_query: Optional[str] = None,
+        limit: int = 25,
+        offset: int = 0,
+        ctx: Context = None,
+    ) -> Dict[str, Any]:
+        """Retrieve patient demographics from the mini-RIS MySQL database.
+
+        Args:
+            mrn: Optional exact MRN filter (e.g., ``MRN1001``).
+            name_query: Optional substring filter applied to given and family names.
+            limit: Maximum number of rows to return (1-100).
+            offset: Pagination offset for the query.
+
+        Returns:
+            Dictionary containing the patient rows and query metadata. If the
+            mini-RIS database is not configured, an informative error response
+            is returned instead of raising.
+        """
+
+        dicom_ctx = ctx.request_context.lifespan_context
+
+        if dicom_ctx.mini_ris_client is None:
+            return {
+                "success": False,
+                "message": "Mini-RIS database is not configured. Add the 'mini_ris' section to configuration.yaml.",
+            }
+
+        return dicom_ctx.mini_ris_client.list_patients(
+            mrn=mrn,
+            name_query=name_query,
+            limit=limit,
+            offset=offset,
+        )
+
     @mcp.tool()
     def fhir_create_resource(
         resource: Dict[str, Any],

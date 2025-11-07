@@ -100,27 +100,16 @@ fhir_servers:
 > [!NOTE]
 > This project uses **MCP Jam exclusively** for all development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with relative paths that you can adapt to your setup.
 
-### (Optional) Sample ORTHANC server
+### Docker Container Setup (Orthancs, FHIR, PostGres and MySQL)
 
 If you don't have a DICOM server available, you can run a local ORTHANC server using Docker:
 
 ```bash
-cd tests
 docker-compose up -d
-cd ..
 pytest # uploads dummy pdf data to ORTHANC server
 ```
 
-UI at [http://localhost:8042](http://localhost:8042)
-
-### (Optional) Local HAPI FHIR Server
-
-For local FHIR testing, you can run a HAPI FHIR server:
-
-```bash
-cd tests
-docker-compose -f docker-compose-fhir.yaml up -d
-```
+UI at [http://localhost:8042](http://localhost:8042) and [http://localhost:8043](http://localhost:8043)
 
 HAPI FHIR will be available at [http://localhost:8080/fhir](http://localhost:8080/fhir)
 
@@ -140,7 +129,7 @@ cd /path/to/dicom-mcp
 source venv/bin/activate
 
 # Start MCP Jam
-npx -y @mcpjam/inspector@latest
+npx -y @mcpjam/inspector@latest or npx -y @mcpjam/inspector@beta
 ```
 
 **Setup Server in MCP Jam:**
