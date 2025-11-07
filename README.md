@@ -4,7 +4,7 @@
 [![MCP Python SDK](https://img.shields.io/badge/MCP-Python%20SDK-blue)](https://github.com/modelcontextprotocol/python-sdk)
 [![MCP JAM](https://img.shields.io/badge/MCP-JAM-orange)](https://www.mcpjam.com)
 
-Cloned from:  <https://github.com/ChristianHinge/dicom-mcp> and modified.
+Originally cloned from <https://github.com/ChristianHinge/dicom-mcp>; now heavily extended and maintained separately.
 
 This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.
 
