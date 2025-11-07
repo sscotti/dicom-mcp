@@ -93,11 +93,11 @@ def upload_pdf_dicom():
     assert wait_for_orthanc(), "Orthanc is not available"
     
     # Read the markdown file content
-    with open('tests/synthetic-pet-ct-reports.md', 'r') as file:
+    with open('tests/sample-reports.md', 'r') as file:
         markdown_content = file.read()
     
     # Split the content into individual reports
-    reports = re.split(r'(?=# Rapport \d+:)', markdown_content)
+    reports = re.split(r'(?=# Report \d+:)', markdown_content)
     reports = [r for r in reports if r.strip()]  # Remove empty reports
     
     # Base study UID prefix - each report will get a unique study UID
@@ -128,8 +128,8 @@ def upload_pdf_dicom():
         ds.file_meta = file_meta
         
         # Patient data - same for all reports
-        ds.PatientName = "John Doe"
-        ds.PatientID = "DLBCL2024"
+        ds.PatientName = "DOE^JOHN"
+        ds.PatientID = "PDFPAT2024"
         ds.PatientBirthDate = "19700101"
         ds.PatientSex = "O"
         
@@ -137,22 +137,25 @@ def upload_pdf_dicom():
         ds.StudyInstanceUID = f"{study_uid_prefix}.{100+i}"  # Unique study UID for each report
         ds.StudyDate = study_date
         ds.StudyTime = "120000"
-        ds.StudyID = f"DLBCL{i}"
+        ds.StudyID = f"RPT{i:02d}"
         
-        # Extract title for study description
-        title_match = re.search(r'# Rapport \d+: (.*?)[\n\r]', report_text)
+        # Extract title for study description (new English format)
+        title_match = re.search(r'# Report \d+:\s*(.*?)(?:\(|[\n\r])', report_text)
         if title_match:
-            ds.StudyDescription = f"PET/CT - {title_match.group(1)}"
+            study_description = title_match.group(1).strip()
+            if study_description.endswith('-'):
+                study_description = study_description[:-1].strip()
+            ds.StudyDescription = study_description or f"Report {i}"
         else:
-            ds.StudyDescription = f"PET/CT Report {i}"
-            
-        ds.AccessionNumber = f"ACC{i}2024"
+            ds.StudyDescription = f"Report {i}"
+
+        ds.AccessionNumber = f"ACC{study_date}{i:02d}"
         
         # Series data
         ds.SeriesInstanceUID = series_instance_uid
         ds.SeriesNumber = i
-        ds.Modality = "DOC"  # Document
-        ds.SeriesDescription = f"PET/CT Report {i}"
+        ds.Modality = "DOC"  # Encapsulated document
+        ds.SeriesDescription = ds.StudyDescription
         
         # Instance data
         ds.SOPInstanceUID = sop_instance_uid
