@@ -15,19 +15,10 @@ from datetime import datetime
 from dicom_mcp.dicom_client import DicomClient
 # Import the same configuration variables and fixtures from test_dicom_mcp.py
 from tests.test_dicom_mcp import (
-    ORTHANC_HOST, ORTHANC_PORT, ORTHANC_WEB_PORT, ORTHANC_AET, 
+    ORTHANC_HOST, ORTHANC_PORT, ORTHANC_WEB_PORT, ORTHANC_AET,
     ORTHANC_USERNAME, ORTHANC_PASSWORD, dicom_config, dicom_client,
-    wait_for_orthanc
+    wait_for_orthanc, build_orthanc_url, orthanc_request_kwargs
 )
-
-# Helper function to wait for Orthanc
-def wait_for_orthanc():
-    """Check if Orthanc is available"""
-    try:
-        response = requests.get(f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/system")
-        return response.status_code == 200
-    except:
-        return False
 
 def parse_date_from_report(date_string):
     """Parse dates from report format (DD-MM-YYYY) to DICOM format (YYYYMMDD)"""
@@ -178,24 +169,20 @@ def upload_pdf_dicom():
             temp_path = temp.name
         
         try:
-            # Upload via HTTP
+            # Upload via HTTP/S
             with open(temp_path, 'rb') as f:
                 dicom_data = f.read()
-            
-            # Try auth if credentials provided
+
+            post_kwargs = orthanc_request_kwargs()
             if ORTHANC_USERNAME and ORTHANC_PASSWORD:
-                response = requests.post(
-                    f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/instances",
-                    data=dicom_data,
-                    auth=(ORTHANC_USERNAME, ORTHANC_PASSWORD),
-                    headers={'Content-Type': 'application/dicom'}
-                )
-            else:
-                response = requests.post(
-                    f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/instances",
-                    data=dicom_data,
-                    headers={'Content-Type': 'application/dicom'}
-                )
+                post_kwargs["auth"] = (ORTHANC_USERNAME, ORTHANC_PASSWORD)
+
+            response = requests.post(
+                build_orthanc_url("/instances"),
+                data=dicom_data,
+                headers={'Content-Type': 'application/dicom'},
+                **post_kwargs
+            )
             
             assert response.status_code == 200, f"Failed to upload PDF DICOM {i}: {response.text}"
             

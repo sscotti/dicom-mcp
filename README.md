@@ -97,13 +97,15 @@ mini_ris:
 > DICOM-MCP is not meant for clinical use, and should not be connected with live hospital databases or databases with patient-sensitive data. Doing so could lead to both loss of patient data, and leakage of patient data onto the internet. DICOM-MCP can be used with locally hosted open-weight LLMs for complete data privacy.
 >
 > [!NOTE]
-> This project uses **MCP Jam exclusively** for all development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with relative paths that you can adapt to your setup.  That can be imported as JSON into MCPJAM to configure the interface.
+> This project uses **MCP Jam exclusively** for all development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with
+
+relative paths that you can adapt to your setup.  That can be imported as JSON into MCPJAM to configure the interface.
 
 ### Docker Container Setup (Orthancs, FHIR, PostGres and MySQL)
 
 ```bash
 docker-compose up -d
-pytest # uploads dummy pdf data to ORTHANC server
+dotenv run -- pytest # uploads dummy pdf data to ORTHANC server
 ```
 
 UI at [http://localhost:8042](http://localhost:8042) and [http://localhost:8043](http://localhost:8043)
@@ -210,14 +212,28 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 
 See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for configuration details.
 
+**Mini-RIS Tools (when MySQL is configured):**
+
+* `list_mini_ris_patients` - Browse patient demographics stored in the mini-RIS schema (filter by MRN or name)
+
+To enable these tools:
+
+1. Launch the bundled MySQL service (`docker compose up -d mysql`).
+2. Load the sample schema and seed rows:
+
+   ```bash
+   docker exec -i dicom-mcp-mysql-1 mysql -uorthanc_ris_app -porthanc_ris_app orthanc_ris < mysql/mini_ris.sql
+   ```
+
+3. Ensure `configuration.yaml` contains the `mini_ris` block and set `MINI_RIS_DB_PASSWORD` in your `.env` file.
+
+Once connected, the MCP server exposes the data via `list_mini_ris_patients`, and future tools can build on the same connection for orders, MWLs, and reports.
+
 ### 🧪 Synthetic Data for Testing
 
 To test orchestration workflows, populate your local HAPI FHIR server with synthetic data:
 
 ```bash
-# Start HAPI FHIR server (if not already running)
-docker-compose -f tests/docker-compose-fhir.yaml up -d
-
 # Populate synthetic data
 python tests/populate_synthetic_fhir_data.py
 ```
@@ -229,8 +245,6 @@ This creates:
 * ImagingStudies linked to patients
 * DiagnosticReports with findings
 
-See [Orchestration Guide](ORCHESTRATION.md) for workflow examples using this data.
-
 ### 🔄 Orchestration Workflows
 
 The MCP server enables end-to-end radiology workflows combining FHIR and DICOM:
@@ -240,78 +254,15 @@ The MCP server enables end-to-end radiology workflows combining FHIR and DICOM:
 * **Reporting**: Generate DiagnosticReports from DICOM PDFs
 * **Workflow Management**: Track orders through completion
 
-See [ORCHESTRATION.md](ORCHESTRATION.md) for detailed workflow examples and patterns.
-
-## 🛠️ Tools Overview
-
-`dicom-mcp` provides four categories of tools for interaction with DICOM servers and DICOM data.
-
-### 🔍 Query Metadata
-
-* **`query_patients`**: Search for patients based on criteria like name, ID, or birth date.
-* **`query_studies`**: Find studies using patient ID, date, modality, description, accession number, or Study UID.
-* **`query_series`**: Locate series within a specific study using modality, series number/description, or Series UID.
-* **`query_instances`**: Find individual instances (images/objects) within a series using instance number or SOP Instance UID
-
-### 📄 Read DICOM Reports (PDF)
-
-* **`extract_pdf_text_from_dicom`**: Retrieve a specific DICOM instance containing an encapsulated PDF and extract its text content.
-
-### ➡️ Send DICOM Images
-
-* **`move_series`**: Send a specific DICOM series to another configured DICOM node using C-MOVE.
-* **`move_study`**: Send an entire DICOM study to another configured DICOM node using C-MOVE.
-
-### ⚙️ Utilities
-
-* **`list_dicom_nodes`**: Show the currently active DICOM node and list all configured nodes.
-* **`switch_dicom_node`**: Change the active DICOM node for subsequent operations.
-* **`verify_connection`**: Test the DICOM network connection to the currently active node using C-ECHO.
-* **`get_attribute_presets`**: List the available levels of detail (minimal, standard, extended) for metadata query results.
-
-### Example interaction
-
-The tools can be chained together to answer complex questions:
-
-<div align="center">
-<img src="images/example.png" alt="My Awesome Diagram" width="700">
-</div>
-
-## 📈 Contributing
-
-### Running Tests
-
-Tests require a running Orthanc DICOM server. You can use Docker:
-
-```bash
-# Navigate to the directory containing docker-compose.yml (e.g., tests/)
-cd tests
-docker-compose up -d
-```
-
-Run tests using pytest:
-
-```bash
-# From the project root directory
-pytest
-```
-
-Stop the Orthanc container:
-
-```bash
-cd tests
-docker-compose down
-```
-
 ### 🔧 Development & Debugging
 
 **MCP Jam** is the recommended tool for development, testing, and debugging your DICOM MCP server.
 
 **Development Workflow:**
 
-1. **Start Orthanc**: `cd tests && docker-compose up -d`
-2. **Load test data**: `pytest` (uploads sample DICOM data)
-3. **Start MCP Jam**: `npx -y @mcpjam/inspector@latest`
+1. **Start Docker**: `docker-compose up -d`
+2. **Load test data**: `dotenv run -- pytest` (uploads sample DICOM data)
+3. **Start MCP Jam**: `npx -y @mcpjam/inspector@latest` or `npx -y @mcpjam/inspector@beta`
 4. **Test tools**: Use the Tools tab to test all DICOM operations interactively
 5. **Test with LLMs**: Use the Playground tab to test natural language interactions
 6. **Debug issues**: Check Server Notifications for errors and detailed logging

@@ -7,8 +7,6 @@ import yaml
 from pathlib import Path
 
 from pydicom.dataset import Dataset
-from pynetdicom import AE
-from pynetdicom.sop_class import Verification
 
 from dicom_mcp.config import DicomConfiguration, load_config
 from dicom_mcp.dicom_client import DicomClient
@@ -21,6 +19,30 @@ ORTHANC_WEB_PORT = int(os.environ.get("ORTHANC_WEB_PORT", "8042"))
 ORTHANC_AET = os.environ.get("ORTHANC_AET", "ORTHANC")
 ORTHANC_USERNAME = os.environ.get("ORTHANC_USERNAME", "")
 ORTHANC_PASSWORD = os.environ.get("ORTHANC_PASSWORD", "")
+ORTHANC_WEB_SCHEME = os.environ.get("ORTHANC_WEB_SCHEME", "http").lower()
+ORTHANC_WEB_VERIFY = os.environ.get("ORTHANC_WEB_VERIFY", "false").lower() in {"1", "true", "yes"}
+ORTHANC_WEB_CA_CERT = os.environ.get("ORTHANC_WEB_CA_CERT") or None
+ORTHANC_DICOM_TLS_MODE = os.environ.get("ORTHANC_DICOM_TLS_MODE", "auto")
+
+
+def build_orthanc_url(path: str) -> str:
+    """Construct a base URL for Orthanc respecting HTTP/HTTPS configuration."""
+
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"{ORTHANC_WEB_SCHEME}://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}{path}"
+
+
+def orthanc_request_kwargs() -> dict:
+    """Return common kwargs for requests to Orthanc (TLS verification, etc.)."""
+
+    if ORTHANC_WEB_SCHEME != "https":
+        return {}
+
+    if ORTHANC_WEB_CA_CERT:
+        return {"verify": ORTHANC_WEB_CA_CERT}
+
+    return {"verify": ORTHANC_WEB_VERIFY}
 
 @pytest.fixture(scope="session")
 def dicom_config():
@@ -38,7 +60,8 @@ def dicom_client(dicom_config):
         host=node.host,
         port=node.port,
         calling_aet=aet,
-        called_aet=node.ae_title
+        called_aet=node.ae_title,
+        tls_mode=ORTHANC_DICOM_TLS_MODE
     )
     return client
 
@@ -46,17 +69,15 @@ def dicom_client(dicom_config):
 def is_orthanc_ready():
     """Check if Orthanc is running and accessible"""
     try:
+        request_kwargs = orthanc_request_kwargs()
         if ORTHANC_USERNAME and ORTHANC_PASSWORD:
-            response = requests.get(
-                f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/system",
-                auth=(ORTHANC_USERNAME, ORTHANC_PASSWORD),
-                timeout=2
-            )
-        else:
-            response = requests.get(
-                f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/system",
-                timeout=2
-            )
+            request_kwargs["auth"] = (ORTHANC_USERNAME, ORTHANC_PASSWORD)
+
+        response = requests.get(
+            build_orthanc_url("/system"),
+            timeout=2,
+            **request_kwargs
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -141,19 +162,15 @@ def upload_test_data():
         with open(temp_path, 'rb') as f:
             dicom_data = f.read()
         
-        # Try auth if credentials provided
-        if ORTHANC_USERNAME and ORTHANC_PASSWORD:
+            post_kwargs = orthanc_request_kwargs()
+            if ORTHANC_USERNAME and ORTHANC_PASSWORD:
+                post_kwargs["auth"] = (ORTHANC_USERNAME, ORTHANC_PASSWORD)
+
             response = requests.post(
-                f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/instances",
+                build_orthanc_url("/instances"),
                 data=dicom_data,
-                auth=(ORTHANC_USERNAME, ORTHANC_PASSWORD),
-                headers={'Content-Type': 'application/dicom'}
-            )
-        else:
-            response = requests.post(
-                f"http://{ORTHANC_HOST}:{ORTHANC_WEB_PORT}/instances",
-                data=dicom_data,
-                headers={'Content-Type': 'application/dicom'}
+                headers={'Content-Type': 'application/dicom'},
+                **post_kwargs
             )
         
         assert response.status_code == 200, f"Failed to upload: {response.text}"
@@ -164,18 +181,12 @@ def upload_test_data():
 
 
 @pytest.fixture(scope="session")
-def dicom_echo():
-    """Verify DICOM connectivity using C-ECHO"""
-    ae = AE(ae_title="TESTCLIENT")
-    ae.add_requested_context(Verification)
-    
-    assoc = ae.associate(ORTHANC_HOST, ORTHANC_PORT, ae_title=ORTHANC_AET)
-    assert assoc.is_established, "Failed to establish association with Orthanc"
-    
-    status = assoc.send_c_echo()
-    assoc.release()
-    
-    assert status and status.Status == 0, "C-ECHO failed"
+def dicom_echo(dicom_client):
+    """Verify DICOM connectivity using the configured DICOM client."""
+
+    success, message = dicom_client.verify_connection()
+    assert success, message
+    return True
 
 
 def test_orthanc_connectivity():
@@ -271,7 +282,12 @@ def test_query_series(dicom_client):
     series_uid = None
     
     for series in result:
-        if series.get("SeriesNumber") == 1:
+        series_number = series.get("SeriesNumber")
+        if series_number is None:
+            continue
+
+        # SeriesNumber may be returned as a string depending on the server
+        if str(series_number).strip() == "1":
             series_found = True
             series_uid = series.get("SeriesInstanceUID")
             break
@@ -293,7 +309,11 @@ def test_query_instances(dicom_client):
     # Verify the test instance
     instance_found = False
     for instance in result:
-        if instance.get("InstanceNumber") == 1:
+        instance_number = instance.get("InstanceNumber")
+        if instance_number is None:
+            continue
+
+        if str(instance_number).strip() == "1":
             instance_found = True
             break
     
