@@ -4,41 +4,22 @@
 [![MCP Python SDK](https://img.shields.io/badge/MCP-Python%20SDK-blue)](https://github.com/modelcontextprotocol/python-sdk)
 [![MCP JAM](https://img.shields.io/badge/MCP-JAM-orange)](https://www.mcpjam.com)
 
-Forked from:  <https://github.com/ChristianHinge/dicom-mcp> and modified.
+Cloned from:  <https://github.com/ChristianHinge/dicom-mcp> and modified.
 
-The forked version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.
+This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.
 
-TO DO:  Integrate SIIM Orthanc and FHIR server and build toolset for FHIR and DIcomWeb ?
-
-Enables AI assistants to query, read, and move data on DICOM servers (PACS, VNA, etc.) using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development.
-
-```text
----------------------------------------------------------------------
-🧑‍⚕️ User: "Any significant findings in John Doe's previous CT report?"
-
-🧠 LLM → ⚙️ Tools:
-   query_patients → query_studies → query_series → extract_pdf_text_from_dicom
-
-💬 LLM Response: "The report from 2025-03-26 mentions a history of splenomegaly (enlarged spleen)"
-
-🧑‍⚕️ User: "What's the volume of his spleen at the last scan and the scan today?"
-
-🧠 LLM → ⚙️ Tools:
-   (query_studies → query_series → move_series → query_series → extract_pdf_text_from_dicom) x2
-   (The move_series tool sends the latest CT to a DICOM segmentation node, which returns volume PDF report)
-
-💬 LLM Response: "last year 2024-03-26: 412cm³, today 2025-04-10: 350cm³"
----------------------------------------------------------------------
-```
+Enables AI assistants to query, read, and move data on PACS using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development using ChatGPT as the LLM.
 
 ## ✨ Core Capabilities
 
 `dicom-mcp` provides tools to:
 
-* **🔍 Query Metadata**: Search for patients, studies, series, and instances using various criteria.
+* **🔍 Query Orthanc**: Search for patients, studies, series, and instances using various criteria.
 * **📄 Read DICOM Reports (PDF)**: Retrieve DICOM instances containing encapsulated PDFs (e.g., clinical reports) and extract the text content.
 * **➡️ Send DICOM Images**: Send series or studies to other DICOM destinations, e.g. AI endpoints for image segmentation, classification, etc.
 * **⚙️ Utilities**: Manage connections and understand query options.
+* **⚙️ FHIR methods**:
+* **⚙️ Mini- RIS**:
 
 ## 🚀 Quick Start
 
@@ -92,17 +73,33 @@ fhir_servers:
     base_url: "https://hackathon.siim.org/fhir"
     api_key: "${SIIM_API_KEY}"  # Set in .env file
     description: "SIIM Hackathon FHIR server"
+  
+  # Uncomment to use a local HAPI FHIR server
+  hapi_local:
+    base_url: "http://localhost:8080/fhir"
+    description: "Local HAPI FHIR server"
+
+current_fhir: "hapi_local"  # Active FHIR server: firely, siim, or hapi_local, make sure to start the local hapi fhir server before starting the MCP server
+
+# The server will expose all DICOM tools and FHIR tools via standard MCP protocol
+
+# Mini-RIS MySQL database configuration (optional)
+mini_ris:
+  host: "localhost"
+  port: 3306
+  user: "orthanc_ris_app"
+  password: "${MINI_RIS_DB_PASSWORD}"
+  database: "orthanc_ris"
+  pool_size: 5
 ```
 
 > [!WARNING]
 > DICOM-MCP is not meant for clinical use, and should not be connected with live hospital databases or databases with patient-sensitive data. Doing so could lead to both loss of patient data, and leakage of patient data onto the internet. DICOM-MCP can be used with locally hosted open-weight LLMs for complete data privacy.
 >
 > [!NOTE]
-> This project uses **MCP Jam exclusively** for all development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with relative paths that you can adapt to your setup.
+> This project uses **MCP Jam exclusively** for all development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with relative paths that you can adapt to your setup.  That can be imported as JSON into MCPJAM to configure the interface.
 
 ### Docker Container Setup (Orthancs, FHIR, PostGres and MySQL)
-
-If you don't have a DICOM server available, you can run a local ORTHANC server using Docker:
 
 ```bash
 docker-compose up -d
