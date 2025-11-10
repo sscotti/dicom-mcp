@@ -8,7 +8,7 @@ Originally cloned from <https://github.com/ChristianHinge/dicom-mcp>; now heavil
 
 This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.
 
-Enables AI assistants to query, read, and move data on PACS using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development using ChatGPT as the LLM.
+Enables AI assistants to query, read, and move data on PACS using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development using ChatGPT as the LLM.  Also integrated with FHIR and a mini-RIS DB.
 
 ## ✨ Core Capabilities
 
@@ -20,6 +20,7 @@ Enables AI assistants to query, read, and move data on PACS using the standard M
 * **⚙️ Utilities**: Manage connections and understand query options.
 * **⚙️ FHIR methods**:
 * **⚙️ Mini- RIS**:
+* **⚙️ MWL server**:
 
 ## 🚀 Quick Start
 
@@ -215,19 +216,195 @@ See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for configuration details.
 **Mini-RIS Tools (when MySQL is configured):**
 
 * `list_mini_ris_patients` - Browse patient demographics stored in the mini-RIS schema (filter by MRN or name)
+* `create_mwl_from_order` - Create a DICOM Modality Worklist entry from an existing mini-RIS order
+* `create_synthetic_cr_study` - Generate synthetic CR DICOM images and send to PACS (virtual modality)
 
-To enable these tools:
+**Mini-RIS Database Schema:**
 
-1. Launch the bundled MySQL service (`docker compose up -d mysql`).
-2. Load the sample schema and seed rows:
+The `mini_ris.sql` schema provides a complete radiology information system with:
+
+* **Core Entities**: Patients, Providers, Encounters, Orders, Imaging Studies, Reports
+* **Reference Tables**:
+  * `dicom_tags` - 50 essential DICOM tag definitions for MWL/MPPS validation
+  * `procedures` - 14 CR/XR procedure codes with typical views and image counts
+  * `modalities` - Standard DICOM modality codes
+  * `body_parts` - Anatomical regions for imaging
+* **MWL/MPPS Support**: Tables for Modality Worklist and Modality Performed Procedure Step tracking
+
+**Setup:**
+
+1. Launch the MySQL service:
+
+   ```bash
+   docker compose up -d mysql
+   ```
+
+2. Initialize the database (automatic on first start, or manually):
 
    ```bash
    docker exec -i dicom-mcp-mysql-1 mysql -uorthanc_ris_app -porthanc_ris_app orthanc_ris < mysql/mini_ris.sql
    ```
 
-3. Ensure `configuration.yaml` contains the `mini_ris` block and set `MINI_RIS_DB_PASSWORD` in your `.env` file.
+3. Configure environment variables in `.env`:
 
-Once connected, the MCP server exposes the data via `list_mini_ris_patients`, and future tools can build on the same connection for orders, MWLs, and reports.
+   ```bash
+   MINI_RIS_DB_PASSWORD=orthanc_ris_app
+   ```
+
+4. Verify `configuration.yaml` contains the `mini_ris` block.
+
+**Included CR Procedures:**
+
+The database includes 14 common Computed Radiography (CR) procedures optimized for single-image study workflows:
+
+* Chest (1 or 2 views)
+* Abdomen (1 or 2 views)
+* Pelvis, Cervical/Lumbar Spine
+* Upper Extremity: Hand, Wrist, Shoulder
+* Lower Extremity: Knee, Ankle, Foot
+* Skull
+
+Each procedure includes typical view projections (AP, PA, Lateral, Oblique) and expected image counts for realistic test data generation.
+
+**MWL/MPPS Services:**
+
+The project includes integrated Modality Worklist (MWL) and Modality Performed Procedure Step (MPPS) services for managing imaging workflow:
+
+* **mwl-mpps** (port 4104) - DICOM SCP for MWL queries and MPPS N-CREATE/N-SET operations
+* **mwl-api** (port 8000) - FastAPI REST interface for creating and managing MWL entries from mini-RIS orders
+
+**Environment Variables:**
+
+Both services share the same MySQL database configuration via:
+
+```bash
+MINI_RIS_DB_PASSWORD=orthanc_ris_app  # Default password for orthanc_ris_app user
+```
+
+**Usage:**
+
+1. Start the MWL/MPPS services:
+
+   ```bash
+   docker compose up -d mwl-mpps mwl-api
+   ```
+
+2. Query worklist via DICOM C-FIND:
+
+   ```bash
+   # Use -W for Modality Worklist queries (not -P for Patient Root)
+   findscu -v -W -k 0008,0050="" -k 0010,0020="" localhost 4104
+   
+   # Or query by specific accession number:
+   findscu -v -W -k 0008,0050="ACC-2025-0001" localhost 4104
+   ```
+
+3. Create MWL entries via REST API:
+
+   ```bash
+   curl -X POST http://localhost:8000/mwl/create_from_json \
+     -H "Content-Type: application/json" \
+     -d @mwl_payload.json
+   ```
+
+4. View MWL records in web dashboard:
+
+   ```bash
+   open http://localhost:8000/mwl
+   # Or visit http://localhost:8000 for the main dashboard
+   ```
+
+The MWL/MPPS tables (`mwl`, `mpps`, `mwl_tasks`) in the mini-RIS database store all worklist items and procedure step statuses, enabling full traceability from order to completed exam.
+
+**Creating MWLs from Orders (via MCP Tool):**
+
+The `create_mwl_from_order` tool automates MWL creation from mini-RIS orders:
+
+```python
+# Example: Patient arrives, technician creates MWL from order
+# In MCP Jam or via LLM:
+create_mwl_from_order(
+    order_id=1,
+    scheduled_station_aet="ORTHANC"
+)
+
+# Returns:
+{
+  "success": true,
+  "message": "MWL created successfully for order 1",
+  "accession_number": "ACC-2025-0001",
+  "patient_name": "Alex Johnson",
+  "patient_id": "MRN1001",
+  "procedure": "Chest X-Ray 2 Views",
+  "modality": "CR",
+  "scheduled_time": "2025-06-01 09:15:00",
+  "mwl_id": 42
+}
+```
+
+This enables LLM-driven workflows like:
+
+* "Create a worklist entry for order 1"
+* "Patient MRN1001 has arrived, set up their chest x-ray"
+* "List all scheduled orders and create MWLs for today's patients"
+
+**Virtual CR Device** 🆕
+
+The project includes a virtual CR (Computed Radiography) device that generates synthetic DICOM images for complete workflow demonstrations:
+
+```python
+# Example: Complete imaging workflow
+# 1. Create MWL from order
+create_mwl_from_order(order_id=1)
+
+# 2. Simulate CR device acquiring images
+create_synthetic_cr_study(
+    accession_number="ACC-2025-0001",
+    image_mode="simple",  # or "ai" with OpenAI key
+    send_to_pacs=True
+)
+
+# Result: 2 CR images created and sent to Orthanc!
+```
+
+**Image Generation Modes:**
+
+1. **`simple`** (No API key required) - Basic synthetic images with anatomical outlines
+2. **`ai`** (Requires `OPENAI_API_KEY`) - Realistic AI-generated images via DALL-E 3
+3. **`auto`** (Default) - Uses AI if key available, falls back to simple
+4. **`sample`** - Uses pre-made sample images from library
+
+⚠️ **IMPORTANT**:
+
+* Synthetic images are for development/testing/training only. NOT for clinical use.
+* OpenAI's content policy may block medical image generation. The tool will automatically fall back to "simple" mode if AI generation fails.
+* For reliable testing, explicitly use `image_mode="simple"` instead of "auto".
+
+**Configuration:**
+
+Add to `.env` (optional for AI mode):
+
+```bash
+OPENAI_API_KEY=sk-proj-xxxxx  # Optional - enables AI-generated images
+```
+
+**LLM-Driven Workflow Examples:**
+
+```
+User: "Patient Johnson completed their chest x-ray, create the study"
+LLM: Calls create_synthetic_cr_study(accession_number="ACC-2025-0001")
+Result: 2-view chest study appears in Orthanc!
+
+User: "Generate a chest x-ray showing pneumonia in the right lung"
+LLM: Calls with image_description="pneumonia right lower lobe"
+Result: AI generates realistic pneumonia appearance
+```
+
+This completes the full RIS/PACS workflow:
+
+```
+Order → MWL → Virtual Device → DICOM Images → PACS Storage → Viewing
+```
 
 ### 🧪 Synthetic Data for Testing
 

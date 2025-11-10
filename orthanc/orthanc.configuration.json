@@ -2,7 +2,6 @@
     "Name": "Enhanced Orthanc with Plugins",
     "StorageDirectory": "/var/lib/orthanc/db",
     "IndexDirectory": "/var/lib/orthanc/db",
-    "StorageCompression": false,
     "MaximumStorageSize": 0,
     "MaximumPatientCount": 0,
     "MaximumStorageMode": "Recycle",
@@ -75,21 +74,23 @@
         "Servers": {
             "SIIMHackathon": {
                 "Url": "https://hackathon.siim.org/dicomweb/",
+                "Manufacturer": "Generic",
+                "HttpHeaders": {
+                    "apikey": "REPLACE_WITH_SIIM_API_KEY"
+                },
                 "HasDelete": false,
                 "ChunkedTransfers": true,
                 "HasWadoRsUniversalTransferSyntax": true,
-                "HttpHeaders": {
-                    "apikey": "REPLACE_WITH_SIIM_API_KEY"
-                }
+                "Timeout": 60
             },
             "PACSA": {
-                "Url": "http://orthanc:8042/dicom-web/",
+                "Url": "https://orthanc:8042/dicom-web/",
                 "HasDelete": true,
                 "ChunkedTransfers": true,
                 "HasWadoRsUniversalTransferSyntax": true
             },
             "PACSB": {
-                "Url": "http://orthanc2:8043/dicom-web/",
+                "Url": "https://orthanc2:8043/dicom-web/",
                 "HasDelete": true,
                 "ChunkedTransfers": true,
                 "HasWadoRsUniversalTransferSyntax": true

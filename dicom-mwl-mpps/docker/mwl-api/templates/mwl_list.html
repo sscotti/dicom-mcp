@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>📋 MWL Entries (Latest 50)</h2>
+
+    {% if mwl_entries %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Accession Number</th>
+                <th>Patient Name</th>
+                <th>Patient ID</th>
+                <th>Scheduled Date</th>
+                <th>Station AE</th>
+                <th>Status</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in mwl_entries %}
+            <tr>
+                <td>{{ entry.id }}</td>
+                <td><strong>{{ entry.AccessionNumber }}</strong></td>
+                <td>{{ entry.PatientName or 'N/A' }}</td>
+                <td>{{ entry.PatientID or 'N/A' }}</td>
+                <td>{{ entry.ScheduledProcedureStepStartDate or 'N/A' }}</td>
+                <td>{{ entry.ScheduledStationAETitle or 'N/A' }}</td>
+                <td class="{% if entry.completed %}status-completed{% else %}status-pending{% endif %}">
+                    {% if entry.completed %}✅ Completed{% else %}⏳ Pending{% endif %}
+                </td>
+                <td>{{ entry.created_at.strftime('%Y-%m-%d %H:%M') if entry.created_at else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <h3>🔍 No MWL Entries Found</h3>
+        <p>{{ empty_message or "No entries to display." }}</p>
+        <div class="example-box">
+            <h4>Create a test entry:</h4>
+            <pre><code>curl -X POST http://localhost:8000/mwl/create_from_json \
+  -H "Content-Type: application/json" \
+  -d '{
+    "AccessionNumber": "TEST123",
+    "PatientID": "P1",
+    "PatientName": "DOE^JOHN",
+    "PatientBirthDate": "19800101",
+    "PatientSex": "M",
+    "StudyInstanceUID": "1.2.3.4.5",
+    "ScheduledProcedureStepSequence": [{
+      "ScheduledProcedureStepStartDate": "20240625",
+      "ScheduledStationAETitle": "ORTHANC"
+    }]
+  }'</code></pre>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+    }
+
+    .example-box {
+        background: #f5f5f5;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 20px 0;
+        text-align: left;
+    }
+
+    .example-box h4 {
+        margin-top: 0;
+        color: #333;
+    }
+
+    .example-box pre {
+        background: #2d3748;
+        color: #e2e8f0;
+        padding: 15px;
+        border-radius: 5px;
+        overflow-x: auto;
+        font-size: 12px;
+    }
+</style>
+{% endblock %}

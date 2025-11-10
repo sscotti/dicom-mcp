@@ -16,6 +16,7 @@ class DicomNodeConfig(BaseModel):
     port: int
     ae_title: str
     description: str = ""
+    use_tls: bool = True  # Default to TLS for security
 
 
 # OpenAI config removed - using standard MCP protocol instead

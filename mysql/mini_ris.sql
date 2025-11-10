@@ -15,6 +15,22 @@ SET time_zone = '+00:00';
 -- Lookup tables
 -- -----------------------------------------------------------------------------
 
+-- DICOM Tags Reference (from dicom.dic standard)
+-- Useful for MWL creation and DICOM attribute validation
+DROP TABLE IF EXISTS dicom_tags;
+CREATE TABLE dicom_tags (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  tag VARCHAR(64),
+  tag_group VARCHAR(16),
+  element VARCHAR(16),
+  vr VARCHAR(4),
+  name VARCHAR(128),
+  vm VARCHAR(8),
+  version VARCHAR(16),
+  INDEX idx_tag (tag),
+  INDEX idx_name (name)
+) ENGINE=InnoDB;
+
 DROP TABLE IF EXISTS modalities;
 CREATE TABLE modalities (
   modality_code VARCHAR(8) PRIMARY KEY,
@@ -31,6 +47,21 @@ DROP TABLE IF EXISTS encounter_types;
 CREATE TABLE encounter_types (
   encounter_type_code VARCHAR(16) PRIMARY KEY,
   description VARCHAR(128) NOT NULL
+) ENGINE=InnoDB;
+
+-- Procedures catalog (focused on CR for single-image studies)
+DROP TABLE IF EXISTS procedures;
+CREATE TABLE procedures (
+  procedure_code VARCHAR(32) PRIMARY KEY,
+  procedure_name VARCHAR(128) NOT NULL,
+  modality_code VARCHAR(8) NOT NULL,
+  body_part_code VARCHAR(32),
+  typical_views VARCHAR(64),
+  typical_image_count TINYINT UNSIGNED DEFAULT 1,
+  description TEXT,
+  active BOOLEAN DEFAULT TRUE,
+  CONSTRAINT fk_procedure_modality FOREIGN KEY (modality_code) REFERENCES modalities(modality_code),
+  CONSTRAINT fk_procedure_body_part FOREIGN KEY (body_part_code) REFERENCES body_parts(body_part_code)
 ) ENGINE=InnoDB;
 
 -- -----------------------------------------------------------------------------
@@ -128,7 +159,8 @@ CREATE TABLE order_procedures (
   procedure_description VARCHAR(128) NOT NULL,
   laterality ENUM('Left','Right','Bilateral','Unspecified') DEFAULT 'Unspecified',
   quantity TINYINT UNSIGNED DEFAULT 1,
-  CONSTRAINT fk_order_procedure_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE
+  CONSTRAINT fk_order_procedure_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+  CONSTRAINT fk_order_procedure_code FOREIGN KEY (procedure_code) REFERENCES procedures(procedure_code)
 ) ENGINE=InnoDB;
 
 DROP TABLE IF EXISTS imaging_studies;
@@ -163,7 +195,55 @@ CREATE TABLE reports (
   CONSTRAINT fk_report_author FOREIGN KEY (author_provider_id) REFERENCES providers(provider_id)
 ) ENGINE=InnoDB;
 
+-- DICOM MWL/MPPS integration tables
+DROP TABLE IF EXISTS mpps;
+DROP TABLE IF EXISTS mwl;
 DROP TABLE IF EXISTS mwl_tasks;
+CREATE TABLE mwl (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  completed TINYINT(1) NOT NULL DEFAULT 0,
+  AccessionNumber VARCHAR(32) UNIQUE,
+  StudyInstanceUID VARCHAR(64),
+  PatientID VARCHAR(32),
+  PatientName VARCHAR(128),
+  ScheduledProcedureStepStartDate VARCHAR(8),
+  ScheduledStationAETitle VARCHAR(16),
+  Dataset LONGBLOB,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_mwl_accession (AccessionNumber),
+  INDEX idx_mwl_study_uid (StudyInstanceUID),
+  INDEX idx_mwl_patient (PatientID),
+  INDEX idx_mwl_completed (completed),
+  INDEX idx_mwl_sps_date (ScheduledProcedureStepStartDate),
+  INDEX idx_mwl_station (ScheduledStationAETitle)
+) ENGINE=InnoDB;
+
+CREATE TABLE mpps (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sop_instance_uid VARCHAR(64) NOT NULL,
+  mwl_id INT UNSIGNED,
+  AccessionNumber VARCHAR(32),
+  StudyInstanceUID VARCHAR(64),
+  PatientID VARCHAR(32),
+  status ENUM('IN_PROGRESS','COMPLETED','DISCONTINUED') DEFAULT 'IN_PROGRESS',
+  performed_procedure_step_id VARCHAR(32),
+  performed_station_ae_title VARCHAR(16),
+  started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  dataset_blob LONGBLOB,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY idx_mpps_sop_uid (sop_instance_uid),
+  INDEX idx_mpps_mwl (mwl_id),
+  INDEX idx_mpps_accession (AccessionNumber),
+  INDEX idx_mpps_study_uid (StudyInstanceUID),
+  INDEX idx_mpps_patient (PatientID),
+  INDEX idx_mpps_status (status),
+  INDEX idx_mpps_station (performed_station_ae_title),
+  CONSTRAINT fk_mpps_mwl FOREIGN KEY (mwl_id) REFERENCES mwl(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE mwl_tasks (
   mwl_task_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   order_id INT UNSIGNED NOT NULL,
@@ -179,7 +259,6 @@ CREATE TABLE mwl_tasks (
   CONSTRAINT fk_mwl_order FOREIGN KEY (order_id) REFERENCES orders(order_id),
   CONSTRAINT fk_mwl_performing_provider FOREIGN KEY (scheduled_performing_provider_id) REFERENCES providers(provider_id)
 ) ENGINE=InnoDB;
-
 CREATE INDEX idx_orders_patient_status ON orders(patient_id, status);
 CREATE INDEX idx_orders_accession ON orders(accession_number);
 CREATE INDEX idx_encounter_patient ON encounters(patient_id);
@@ -189,6 +268,60 @@ CREATE INDEX idx_mwl_station_start ON mwl_tasks(scheduled_station_aet, scheduled
 -- -----------------------------------------------------------------------------
 -- Seed data for local development
 -- -----------------------------------------------------------------------------
+
+-- Essential DICOM tags for MWL and MPPS (subset of ~50 most common tags)
+INSERT INTO dicom_tags (id, tag, tag_group, element, vr, name, vm, version) VALUES
+  (1,'(0008,0005)','0008','0005','CS','SpecificCharacterSet','1-n','DICOM'),
+  (2,'(0008,0008)','0008','0008','CS','ImageType','2-n','DICOM'),
+  (3,'(0008,0016)','0008','0016','UI','SOPClassUID','1','DICOM'),
+  (4,'(0008,0018)','0008','0018','UI','SOPInstanceUID','1','DICOM'),
+  (5,'(0008,0020)','0008','0020','DA','StudyDate','1','DICOM'),
+  (6,'(0008,0021)','0008','0021','DA','SeriesDate','1','DICOM'),
+  (7,'(0008,0030)','0008','0030','TM','StudyTime','1','DICOM'),
+  (8,'(0008,0031)','0008','0031','TM','SeriesTime','1','DICOM'),
+  (9,'(0008,0050)','0008','0050','SH','AccessionNumber','1','DICOM'),
+  (10,'(0008,0060)','0008','0060','CS','Modality','1','DICOM'),
+  (11,'(0008,0070)','0008','0070','LO','Manufacturer','1','DICOM'),
+  (12,'(0008,0080)','0008','0080','LO','InstitutionName','1','DICOM'),
+  (13,'(0008,0090)','0008','0090','PN','ReferringPhysicianName','1','DICOM'),
+  (14,'(0008,1030)','0008','1030','LO','StudyDescription','1','DICOM'),
+  (15,'(0008,103E)','0008','103E','LO','SeriesDescription','1','DICOM'),
+  (16,'(0008,1090)','0008','1090','LO','ManufacturerModelName','1','DICOM'),
+  (17,'(0010,0010)','0010','0010','PN','PatientName','1','DICOM'),
+  (18,'(0010,0020)','0010','0020','LO','PatientID','1','DICOM'),
+  (19,'(0010,0030)','0010','0030','DA','PatientBirthDate','1','DICOM'),
+  (20,'(0010,0040)','0010','0040','CS','PatientSex','1','DICOM'),
+  (21,'(0018,0015)','0018','0015','CS','BodyPartExamined','1','DICOM'),
+  (22,'(0018,1030)','0018','1030','LO','ProtocolName','1','DICOM'),
+  (23,'(0020,000D)','0020','000D','UI','StudyInstanceUID','1','DICOM'),
+  (24,'(0020,000E)','0020','000E','UI','SeriesInstanceUID','1','DICOM'),
+  (25,'(0020,0010)','0020','0010','SH','StudyID','1','DICOM'),
+  (26,'(0020,0011)','0020','0011','IS','SeriesNumber','1','DICOM'),
+  (27,'(0020,0013)','0020','0013','IS','InstanceNumber','1','DICOM'),
+  (28,'(0032,1032)','0032','1032','PN','RequestingPhysician','1','DICOM'),
+  (29,'(0032,1033)','0032','1033','LO','RequestingService','1','DICOM'),
+  (30,'(0032,1060)','0032','1060','LO','RequestedProcedureDescription','1','DICOM'),
+  (31,'(0040,0100)','0040','0100','SQ','ScheduledProcedureStepSequence','1','DICOM'),
+  (32,'(0040,0001)','0040','0001','AE','ScheduledStationAETitle','1','DICOM'),
+  (33,'(0040,0002)','0040','0002','DA','ScheduledProcedureStepStartDate','1','DICOM'),
+  (34,'(0040,0003)','0040','0003','TM','ScheduledProcedureStepStartTime','1','DICOM'),
+  (35,'(0040,0006)','0040','0006','PN','ScheduledPerformingPhysicianName','1','DICOM'),
+  (36,'(0040,0007)','0040','0007','LO','ScheduledProcedureStepDescription','1','DICOM'),
+  (37,'(0040,0009)','0040','0009','SH','ScheduledProcedureStepID','1','DICOM'),
+  (38,'(0040,0010)','0040','0010','SH','ScheduledStationName','1','DICOM'),
+  (39,'(0040,1001)','0040','1001','SH','RequestedProcedureID','1','DICOM'),
+  (40,'(0040,0400)','0040','0400','LT','CommentsOnScheduledProcedureStep','1','DICOM'),
+  (41,'(0040,0244)','0040','0244','DA','PerformedProcedureStepStartDate','1','DICOM'),
+  (42,'(0040,0245)','0040','0245','TM','PerformedProcedureStepStartTime','1','DICOM'),
+  (43,'(0040,0250)','0040','0250','DA','PerformedProcedureStepEndDate','1','DICOM'),
+  (44,'(0040,0251)','0040','0251','TM','PerformedProcedureStepEndTime','1','DICOM'),
+  (45,'(0040,0252)','0040','0252','CS','PerformedProcedureStepStatus','1','DICOM'),
+  (46,'(0040,0253)','0040','0253','SH','PerformedProcedureStepID','1','DICOM'),
+  (47,'(0040,0254)','0040','0254','LO','PerformedProcedureStepDescription','1','DICOM'),
+  (48,'(0040,0260)','0040','0260','SQ','PerformedProtocolCodeSequence','1','DICOM'),
+  (49,'(0040,0270)','0040','0270','SQ','ScheduledStepAttributesSequence','1','DICOM'),
+  (50,'(0040,A040)','0040','A040','CS','PerformedProcedureStepTypeCode','1','DICOM')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 INSERT INTO modalities (modality_code, modality_name) VALUES
   ('CT', 'Computed Tomography'),
@@ -224,6 +357,25 @@ INSERT INTO encounter_types (encounter_type_code, description) VALUES
   ('IP', 'Inpatient encounter')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
+-- CR/XR Procedures (balanced set for single-image studies)
+-- Focused on common radiography exams with typical 1-2 image acquisitions
+INSERT INTO procedures (procedure_code, procedure_name, modality_code, body_part_code, typical_views, typical_image_count, description) VALUES
+  ('CR_CHEST_1V', 'Chest X-Ray 1 View', 'CR', 'CHEST', 'PA or AP', 1, 'Single view chest radiograph, typically PA'),
+  ('CR_CHEST_2V', 'Chest X-Ray 2 Views', 'CR', 'CHEST', 'PA and Lateral', 2, 'Standard two-view chest radiograph'),
+  ('CR_ABD_1V', 'Abdomen X-Ray 1 View', 'CR', 'ABD', 'AP Supine', 1, 'Single supine abdominal radiograph'),
+  ('CR_ABD_2V', 'Abdomen X-Ray 2 Views', 'CR', 'ABD', 'AP Supine and Erect', 2, 'Two-view abdomen for obstruction series'),
+  ('CR_PELV_1V', 'Pelvis X-Ray 1 View', 'CR', 'PELV', 'AP', 1, 'Standard AP pelvis radiograph'),
+  ('CR_SPINE_C_2V', 'Cervical Spine 2 Views', 'CR', 'SPINE', 'AP and Lateral', 2, 'Two-view cervical spine series'),
+  ('CR_SPINE_L_2V', 'Lumbar Spine 2 Views', 'CR', 'SPINE', 'AP and Lateral', 2, 'Two-view lumbar spine series'),
+  ('CR_HAND_2V', 'Hand X-Ray 2 Views', 'CR', 'EXT_UP', 'PA and Oblique', 2, 'Two-view hand radiograph'),
+  ('CR_WRIST_2V', 'Wrist X-Ray 2 Views', 'CR', 'EXT_UP', 'PA and Lateral', 2, 'Two-view wrist radiograph'),
+  ('CR_SHOULDER_2V', 'Shoulder X-Ray 2 Views', 'CR', 'EXT_UP', 'AP and Y-View', 2, 'Two-view shoulder radiograph'),
+  ('CR_KNEE_2V', 'Knee X-Ray 2 Views', 'CR', 'EXT_LOW', 'AP and Lateral', 2, 'Two-view knee radiograph'),
+  ('CR_ANKLE_2V', 'Ankle X-Ray 2 Views', 'CR', 'EXT_LOW', 'AP and Lateral', 2, 'Two-view ankle radiograph'),
+  ('CR_FOOT_2V', 'Foot X-Ray 2 Views', 'CR', 'EXT_LOW', 'AP and Oblique', 2, 'Two-view foot radiograph'),
+  ('CR_SKULL_2V', 'Skull X-Ray 2 Views', 'CR', 'HEAD', 'AP and Lateral', 2, 'Two-view skull radiograph')
+ON DUPLICATE KEY UPDATE procedure_name = VALUES(procedure_name);
+
 INSERT INTO patients (mrn, given_name, family_name, date_of_birth, sex, phone, email, address_line, city, state, postal_code, country_code, preferred_language)
 VALUES
   ('MRN1001', 'Alex', 'Johnson', '1984-03-12', 'M', '+1-555-0101', 'alex.johnson@example.org', '100 Main St', 'Metropolis', 'CA', '90001', 'US', 'en'),
@@ -249,47 +401,108 @@ INSERT INTO orders (
   performing_provider_id, modality_code, body_part_code, reason_code, reason_description,
   priority, status, order_datetime, scheduled_start, notes, fhir_service_request_id, hl7_control_code
 ) VALUES
-  ('ORD-2025-0001', 'ACC-2025-0001', 1, 1, 1, 3, 'CT', 'CHEST', 'R07.9', 'Chest pain evaluation',
-   'URGENT', 'Scheduled', '2025-06-01 08:45:00', '2025-06-01 09:15:00', 'Rule out pulmonary embolism', NULL, 'NW'),
-  ('ORD-2025-0002', 'ACC-2025-0002', 2, 2, 1, 3, 'US', 'ABD', 'R10.9', 'Abdominal pain',
-   'ROUTINE', 'Requested', '2025-06-02 08:15:00', '2025-06-02 10:00:00', 'Assess gallbladder', NULL, 'NW')
+  ('ORD-2025-0001', 'ACC-2025-0001', 1, 1, 1, 3, 'CR', 'CHEST', 'R07.9', 'Chest pain evaluation',
+   'URGENT', 'Scheduled', '2025-06-01 08:45:00', '2025-06-01 09:15:00', 'Possible pneumonia', NULL, 'NW'),
+  ('ORD-2025-0002', 'ACC-2025-0002', 2, 2, 1, 3, 'CR', 'ABD', 'R10.9', 'Abdominal pain',
+   'ROUTINE', 'Requested', '2025-06-02 08:15:00', '2025-06-02 10:00:00', 'Rule out obstruction', NULL, 'NW'),
+  ('ORD-2025-0003', 'ACC-2025-0003', 3, NULL, 1, 3, 'CR', 'EXT_LOW', 'M25.561', 'Knee pain',
+   'ROUTINE', 'Requested', '2025-06-03 10:00:00', '2025-06-03 14:00:00', 'Evaluate for fracture', NULL, 'NW')
 ON DUPLICATE KEY UPDATE status = VALUES(status);
 
 INSERT INTO order_procedures (order_id, procedure_code, procedure_description, laterality)
 VALUES
-  (1, '71250', 'CT Thorax without contrast', 'Unspecified'),
-  (2, '76700', 'Ultrasound abdomen complete', 'Unspecified')
+  (1, 'CR_CHEST_2V', 'Chest X-Ray 2 Views', 'Unspecified'),
+  (2, 'CR_ABD_1V', 'Abdomen X-Ray 1 View', 'Unspecified'),
+  (3, 'CR_KNEE_2V', 'Knee X-Ray 2 Views', 'Right')
 ON DUPLICATE KEY UPDATE procedure_description = VALUES(procedure_description);
 
 INSERT INTO imaging_studies (order_id, study_instance_uid, study_started, status, number_of_series, number_of_instances)
 VALUES
-  (1, '1.2.840.113619.2.55.3.2831164352.2025.6.1.9.30.1', '2025-06-01 09:32:00', 'Available', 4, 120)
+  (1, '1.2.840.113619.2.55.3.2831164352.2025.6.1.9.30.1', '2025-06-01 09:32:00', 'Available', 1, 2),
+  (2, '1.2.840.113619.2.55.3.2831164352.2025.6.2.10.15.1', '2025-06-02 10:18:00', 'Available', 1, 1)
 ON DUPLICATE KEY UPDATE status = VALUES(status);
 
 INSERT INTO reports (
   imaging_study_id, report_number, author_provider_id, report_status, report_datetime,
   report_text, impression
 ) VALUES
-  (1, 'RPT-2025-0001', 2, 'Preliminary', '2025-06-01 11:00:00',
-   'CT chest shows no evidence of pulmonary embolism. Mild dependent atelectasis.',
-   'No acute findings.')
+  (1, 'RPT-2025-0001', 2, 'Final', '2025-06-01 11:00:00',
+   'Two-view chest radiograph demonstrates clear lung fields bilaterally. Heart size is normal. No acute bony abnormality. No pleural effusion or pneumothorax.',
+   'No acute cardiopulmonary findings.'),
+  (2, 'RPT-2025-0002', 2, 'Preliminary', '2025-06-02 11:30:00',
+   'Single view supine abdominal radiograph demonstrates normal bowel gas pattern. No evidence of free air or obstruction. No radiopaque calculi identified.',
+   'Normal abdominal radiograph.')
 ON DUPLICATE KEY UPDATE report_status = VALUES(report_status), report_text = VALUES(report_text);
 
 INSERT INTO mwl_tasks (
   order_id, scheduled_station_aet, scheduled_station_name, scheduled_start,
   scheduled_end, scheduled_performing_provider_id, status, mwl_payload
 ) VALUES
-  (1, 'ORTHANC', 'Main CT Suite', '2025-06-01 09:15:00', '2025-06-01 09:45:00', 3, 'Completed',
+  (1, 'ORTHANC', 'CR Room 1', '2025-06-01 09:15:00', '2025-06-01 09:30:00', 3, 'Completed',
    JSON_OBJECT(
      'PatientID', 'MRN1001',
      'PatientName', 'Johnson^Alex',
      'PatientBirthDate', '19840312',
+     'PatientSex', 'M',
      'AccessionNumber', 'ACC-2025-0001',
-     'RequestedProcedureDescription', 'CT Thorax without contrast',
-     'ScheduledProcedureStepStartDate', '20250601',
-     'ScheduledProcedureStepStartTime', '091500',
-     'Modality', 'CT',
-     'ScheduledStationAETitle', 'ORTHANC'
+     'RequestedProcedureDescription', 'Chest X-Ray 2 Views',
+     'RequestedProcedureID', 'ORD-2025-0001',
+     'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.59676346561651051188898732525991691632',
+     'ScheduledProcedureStepSequence', JSON_ARRAY(
+       JSON_OBJECT(
+         'Modality', 'CR',
+         'ScheduledStationAETitle', 'ORTHANC',
+         'ScheduledProcedureStepStartDate', '20250601',
+         'ScheduledProcedureStepStartTime', '091500',
+         'ScheduledProcedureStepDescription', 'Chest X-Ray 2 Views',
+         'ScheduledProcedureStepID', 'SPS1',
+         'ScheduledPerformingPhysicianName', 'Wells^Casey'
+       )
+     )
+   )),
+  (2, 'ORTHANC', 'CR Room 1', '2025-06-02 10:00:00', '2025-06-02 10:10:00', 3, 'Completed',
+   JSON_OBJECT(
+     'PatientID', 'MRN1002',
+     'PatientName', 'Lopez^Maria',
+     'PatientBirthDate', '19761105',
+     'PatientSex', 'F',
+     'AccessionNumber', 'ACC-2025-0002',
+     'RequestedProcedureDescription', 'Abdomen X-Ray 1 View',
+     'RequestedProcedureID', 'ORD-2025-0002',
+     'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.12345678901234567890123456789012',
+     'ScheduledProcedureStepSequence', JSON_ARRAY(
+       JSON_OBJECT(
+         'Modality', 'CR',
+         'ScheduledStationAETitle', 'ORTHANC',
+         'ScheduledProcedureStepStartDate', '20250602',
+         'ScheduledProcedureStepStartTime', '100000',
+         'ScheduledProcedureStepDescription', 'Abdomen X-Ray 1 View',
+         'ScheduledProcedureStepID', 'SPS2',
+         'ScheduledPerformingPhysicianName', 'Wells^Casey'
+       )
+     )
+   )),
+  (3, 'ORTHANC', 'CR Room 2', '2025-06-03 14:00:00', '2025-06-03 14:15:00', 3, 'Scheduled',
+   JSON_OBJECT(
+     'PatientID', 'MRN1003',
+     'PatientName', 'Nguyen^Sam',
+     'PatientBirthDate', '19920721',
+     'PatientSex', 'O',
+     'AccessionNumber', 'ACC-2025-0003',
+     'RequestedProcedureDescription', 'Knee X-Ray 2 Views',
+     'RequestedProcedureID', 'ORD-2025-0003',
+     'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.98765432109876543210987654321098',
+     'ScheduledProcedureStepSequence', JSON_ARRAY(
+       JSON_OBJECT(
+         'Modality', 'CR',
+         'ScheduledStationAETitle', 'ORTHANC',
+         'ScheduledProcedureStepStartDate', '20250603',
+         'ScheduledProcedureStepStartTime', '140000',
+         'ScheduledProcedureStepDescription', 'Knee X-Ray 2 Views',
+         'ScheduledProcedureStepID', 'SPS3',
+         'ScheduledPerformingPhysicianName', 'Wells^Casey'
+       )
+     )
    ))
 ON DUPLICATE KEY UPDATE status = VALUES(status);
 

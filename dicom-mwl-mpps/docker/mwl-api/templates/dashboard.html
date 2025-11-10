@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>📊 System Overview</h2>
+    <div class="stats">
+        <div class="stat-box">
+            <div class="stat-number">{{ stats.mwl.total }}</div>
+            <div>Total MWL Entries</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-number">{{ stats.mwl.pending }}</div>
+            <div>Pending Procedures</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-number">{{ stats.mwl.completed }}</div>
+            <div>Completed Procedures</div>
+        </div>
+        {% if stats.has_mpps %}
+        <div class="stat-box">
+            <div class="stat-number">{{ stats.mpps.total }}</div>
+            <div>MPPS Sessions</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if stats.has_mpps %}
+<div class="card">
+    <h2>⚡ MPPS Status</h2>
+    <div class="stats">
+        <div class="stat-box">
+            <div class="stat-number status-in-progress">{{ stats.mpps.in_progress }}</div>
+            <div>In Progress</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-number status-completed">{{ stats.mpps.completed }}</div>
+            <div>Completed</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>🚀 Quick Actions</h2>
+    <p><a href="/mwl">View all MWL entries →</a></p>
+    {% if stats.has_mpps %}
+    <p><a href="/mpps">View MPPS status →</a></p>
+    {% endif %}
+    <p><a href="http://localhost:8000/docs" target="_blank">API Documentation →</a></p>
+</div>
+{% endblock %}

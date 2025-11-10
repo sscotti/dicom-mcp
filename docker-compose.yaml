@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # PostgreSQL database backing the Orthanc instances
   postgres:
@@ -99,8 +97,45 @@ services:
       MYSQL_PASSWORD: orthanc_ris_app
     volumes:
       - mysql_data:/var/lib/mysql
-    # Place future mini-RIS initialization scripts under ./mysql and
-    # bind-mount them when ready.
+      - ./mysql/mini_ris.sql:/docker-entrypoint-initdb.d/initdb.sql:ro
+    networks:
+      - dicom-network
+
+  # DICOM Modality Worklist/MPPS service (Python + pynetdicom)
+  mwl-mpps:
+    build:
+      context: ./dicom-mwl-mpps/docker/mwl-mpps
+    ports:
+      - "4104:104"
+    environment:
+      DB_HOST: mysql
+      DB_USER: orthanc_ris_app
+      DB_PASSWORD: ${MINI_RIS_DB_PASSWORD:-orthanc_ris_app}
+      DB_NAME: orthanc_ris
+      WORKLIST_DIR: /worklist
+    depends_on:
+      - mysql
+    volumes:
+      - ./dicom-mwl-mpps/worklist:/worklist
+    networks:
+      - dicom-network
+
+  # FastAPI helper for creating and viewing MWL/MPPS records
+  mwl-api:
+    build:
+      context: ./dicom-mwl-mpps/docker/mwl-api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: mysql
+      DB_USER: orthanc_ris_app
+      DB_PASSWORD: ${MINI_RIS_DB_PASSWORD:-orthanc_ris_app}
+      DB_NAME: orthanc_ris
+      WORKLIST_DIR: /worklist
+    depends_on:
+      - mysql
+    volumes:
+      - ./dicom-mwl-mpps/worklist:/worklist
     networks:
       - dicom-network
 

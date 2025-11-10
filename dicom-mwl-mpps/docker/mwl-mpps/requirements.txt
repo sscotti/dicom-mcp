@@ -1,0 +1,9 @@
+pynetdicom
+pydicom
+mysql-connector-python
+fastapi
+uvicorn
+python-dotenv
+pytest
+requests
+

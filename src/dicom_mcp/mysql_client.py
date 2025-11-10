@@ -140,3 +140,55 @@ class MiniRisClient:
             },
         }
 
+    def get_order_for_mwl(self, order_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch order data with all related information needed for MWL creation.
+        
+        Args:
+            order_id: The order ID to fetch
+            
+        Returns:
+            Dictionary with order, patient, procedure, and provider data, or None if not found
+        """
+        sql = """
+            SELECT 
+                o.order_id,
+                o.order_number,
+                o.accession_number,
+                o.modality_code,
+                o.scheduled_start,
+                o.status AS order_status,
+                o.priority,
+                o.reason_description,
+                p.patient_id,
+                p.mrn,
+                p.given_name,
+                p.family_name,
+                p.date_of_birth,
+                p.sex,
+                op.procedure_code,
+                op.procedure_description,
+                op.laterality,
+                proc.typical_views,
+                proc.typical_image_count,
+                prov.given_name AS performing_physician_given,
+                prov.family_name AS performing_physician_family,
+                ordering_prov.given_name AS ordering_physician_given,
+                ordering_prov.family_name AS ordering_physician_family
+            FROM orders o
+            INNER JOIN patients p ON o.patient_id = p.patient_id
+            INNER JOIN order_procedures op ON o.order_id = op.order_id
+            INNER JOIN procedures proc ON op.procedure_code = proc.procedure_code
+            LEFT JOIN providers prov ON o.performing_provider_id = prov.provider_id
+            LEFT JOIN providers ordering_prov ON o.ordering_provider_id = ordering_prov.provider_id
+            WHERE o.order_id = %s
+            LIMIT 1
+        """
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(sql, (order_id,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+        return result
+

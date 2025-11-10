@@ -1,0 +1,62 @@
+services:
+  ################
+  # DICOM MWL MPPS Service, Experimental
+  ################
+  dicom-mwl-mpps:
+    build:
+      context: ./docker/mwl-mpps
+    container_name: dicom-mwl-mpps
+    ports:
+      - "4104:104"  # Expose DICOM port 104 on host as 4104
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - WORKLIST_DIR=${WORKLIST_DIR}
+    depends_on:
+      - mysql_db
+    volumes:
+      - ./worklist:/worklist
+      - ./docker/mwl-mpps:/app
+
+  ################
+  # MySQL Database Service
+  ################
+  mysql_db:
+    image: mysql:latest
+    container_name: mysql_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init/orthanc_ris.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./mysql-init/dicom_tags_short_names.sql:/docker-entrypoint-initdb.d/02-dicom_tags.sql
+
+
+  ################
+  # MWL API Service
+  ################
+  mwl-api:
+    build:
+      context: ./docker/mwl-api
+    container_name: mwl-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - WORKLIST_DIR=${WORKLIST_DIR}
+    depends_on:
+      - mysql_db
+    volumes:
+      - ./worklist:/worklist
+
+volumes:
+  mysql_data:

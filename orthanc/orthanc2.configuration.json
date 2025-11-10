@@ -2,7 +2,6 @@
   "Name": "Enhanced Orthanc2 with Plugins",
   "StorageDirectory": "/var/lib/orthanc/db",
   "IndexDirectory": "/var/lib/orthanc/db",
-  "StorageCompression": false,
   "MaximumStorageSize": 0,
   "MaximumPatientCount": 0,
   "MaximumStorageMode": "Recycle",
@@ -75,21 +74,23 @@
     "Servers": {
       "SIIMHackathon": {
         "Url": "https://hackathon.siim.org/dicomweb/",
+        "Manufacturer": "Generic",
         "HttpHeaders": {
           "apikey": "REPLACE_WITH_SIIM_API_KEY"
         },
         "HasDelete": false,
         "ChunkedTransfers": true,
-        "HasWadoRsUniversalTransferSyntax": true
+        "HasWadoRsUniversalTransferSyntax": true,
+        "Timeout": 60
       },
       "PACSA": {
-        "Url": "http://orthanc:8042/dicom-web/",
+        "Url": "https://orthanc:8042/dicom-web/",
         "HasDelete": true,
         "ChunkedTransfers": true,
         "HasWadoRsUniversalTransferSyntax": true
       },
       "PACSB": {
-        "Url": "http://orthanc2:8043/dicom-web/",
+        "Url": "https://orthanc2:8043/dicom-web/",
         "HasDelete": true,
         "ChunkedTransfers": true,
         "HasWadoRsUniversalTransferSyntax": true
@@ -213,6 +214,19 @@
       "AllowMove": true,
       "AllowStore": true,
       "UseDicomTls": true
+    },
+    "SIIMHackathon": {
+      "AET": "SIIM",
+      "Host": "hackathon.siim.org",
+      "Manufacturer": "Generic",
+      "Port": 4242,
+      "AllowEcho": true,
+      "AllowFind": true,
+      "AllowGet": true,
+      "AllowMove": true,
+      "AllowStore": true,
+      "UseDicomTls": false,
+      "Timeout": 60
     }
   },
   "DicomModalitiesInDatabase": false,
@@ -236,9 +250,9 @@
   // Enhanced logging
   "LogLevel": "default",
   "LogFile": "",
+  "EnableHttpRequestsLog": true,
   // "HttpsCACertificates": "/etc/ssl/certs/ca-certificates.crt",
   "HttpsVerifyPeers": false,
-  "EnableHttpRequestsLog": true,
   // Enhanced metadata handling
   "OverwriteInstances": false,
   "LimitFindResults": 0,

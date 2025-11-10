@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>⚡ MPPS Entries (Latest 50)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Accession Number</th>
+                <th>Patient ID</th>
+                <th>Status</th>
+                <th>Station AE</th>
+                <th>Started</th>
+                <th>Completed</th>
+                <th>Duration</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in mpps_entries %}
+            <tr>
+                <td>{{ entry.id }}</td>
+                <td><strong>{{ entry.AccessionNumber or 'N/A' }}</strong></td>
+                <td>{{ entry.PatientID or 'N/A' }}</td>
+                <td class="status-{{ entry.status.lower().replace('_', '-') if entry.status else 'unknown' }}">
+                    {% if entry.status == 'IN_PROGRESS' %}🔄 In Progress
+                    {% elif entry.status == 'COMPLETED' %}✅ Completed
+                    {% elif entry.status == 'DISCONTINUED' %}❌ Discontinued
+                    {% else %}❓ {{ entry.status }}
+                    {% endif %}
+                </td>
+                <td>{{ entry.performed_station_ae_title or 'N/A' }}</td>
+                <td>{{ entry.started_at.strftime('%Y-%m-%d %H:%M:%S') if entry.started_at else 'N/A' }}</td>
+                <td>{{ entry.completed_at.strftime('%Y-%m-%d %H:%M:%S') if entry.completed_at else 'N/A' }}</td>
+                <td>
+                    {% if entry.started_at and entry.completed_at %}
+                    {% set duration = (entry.completed_at - entry.started_at).total_seconds() %}
+                    {% if duration < 60 %} {{ "%.0f" |format(duration) }}s {% elif duration < 3600 %} {{ "%.1f"
+                        |format(duration/60) }}m {% else %} {{ "%.1f" |format(duration/3600) }}h {% endif %} {% else %}
+                        N/A {% endif %} </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

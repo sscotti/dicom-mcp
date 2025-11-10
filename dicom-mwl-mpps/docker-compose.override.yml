@@ -1,0 +1,85 @@
+# Development overrides for docker-compose.yml
+# Use: docker compose -f docker-compose.yml -f docker-compose.override.yml up
+
+services:
+  dicom-mwl-mpps:
+    environment:
+      - LOG_LEVEL=DEBUG
+      - ENVIRONMENT=development
+    volumes:
+      # Live code reload during development
+      - ./docker/mwl-mpps:/app
+    ports:
+      # Add debug port for remote debugging
+      - "5678:5678"
+    hostname: dicom-mwl-mpps
+    networks:
+      default:
+        aliases:
+          - dicom-server
+          - mwl-mpps-server
+
+  mwl-api:
+    environment:
+      - API_DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - ENVIRONMENT=development
+    volumes:
+      # Live code reload during development
+      - ./docker/mwl-api:/app
+    ports:
+      # Add debug port for FastAPI debugging
+      - "5679:5679"
+    hostname: mwl-api
+    networks:
+      default:
+        aliases:
+          - api-server
+          - mwl-api-server
+
+  mysql_db:
+    environment:
+      - MYSQL_GENERAL_LOG=1
+      - MYSQL_GENERAL_LOG_FILE=/var/lib/mysql/general.log
+    ports:
+      - "3306:3306"
+    # Add mysql command for better development experience
+    command: --general-log=1 --general-log-file=/var/lib/mysql/general.log
+    hostname: mysql_db
+    networks:
+      default:
+        aliases:
+          - database
+          - mysql-server
+
+  # Add a test runner service for integration tests
+  test-runner:
+    build:
+      context: ./docker/mwl-mpps
+    container_name: test-runner
+    hostname: test-runner
+    environment:
+      - DB_HOST=mysql_db
+      - DB_USER=root
+      - DB_PASSWORD=root
+      - DB_NAME=orthanc_ris
+      - ENVIRONMENT=test
+    depends_on:
+      - mysql_db
+      - dicom-mwl-mpps
+      - mwl-api
+    volumes:
+      - ./docker/mwl-mpps:/app
+    command: python -m pytest tests/ -v
+    profiles:
+      - test
+    networks:
+      default:
+        aliases:
+          - test-client
+
+# Define explicit network for better control
+networks:
+  default:
+    driver: bridge
+    name: dicom-mwl-mpps-network 

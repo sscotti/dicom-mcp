@@ -4,17 +4,20 @@ DICOM MCP Server main implementation.
 
 import logging
 import os
+import requests
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Dict, List, Any, AsyncIterator, Optional, Tuple
 
 from mcp.server.fastmcp import FastMCP, Context
+from pydicom.uid import generate_uid
 
 from .attributes import ATTRIBUTE_PRESETS
 from .dicom_client import DicomClient
 from .fhir_client import FhirClient
 from .mysql_client import MiniRisClient, MiniRisConnectionSettings
 from .config import DicomConfiguration, load_config
+from .virtual_cr import VirtualCRDevice
 
 # Configure logging
 logger = logging.getLogger("dicom_mcp")
@@ -832,6 +835,298 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             limit=limit,
             offset=offset,
         )
+
+    @mcp.tool()
+    def create_mwl_from_order(
+        order_id: int,
+        scheduled_station_aet: str = "ORTHANC",
+        mwl_api_url: str = "http://localhost:8000",
+        ctx: Context = None,
+    ) -> Dict[str, Any]:
+        """Create a DICOM Modality Worklist entry from an existing mini-RIS order.
+        
+        This tool is typically used when a patient arrives at the imaging center and
+        the technician is ready to perform the procedure. It converts an order from
+        the mini-RIS into a DICOM MWL entry that modalities can query via C-FIND.
+        
+        The workflow is:
+        1. Patient arrives → Technician verifies demographics
+        2. Ready for imaging → Call this tool to create MWL
+        3. Modality queries MWL → Gets worklist via C-FIND
+        4. Study acquired → MPPS updates status
+        
+        Args:
+            order_id: The mini-RIS order ID to convert to MWL
+            scheduled_station_aet: The AE Title of the acquisition station (default: ORTHANC)
+            mwl_api_url: Base URL of the MWL API service (default: http://localhost:8000)
+            
+        Returns:
+            Dictionary with MWL creation status, accession number, patient info, and MWL ID
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        
+        if dicom_ctx.mini_ris_client is None:
+            return {
+                "success": False,
+                "message": "Mini-RIS database is not configured. Add the 'mini_ris' section to configuration.yaml.",
+            }
+        
+        # Query order with all related data
+        try:
+            order_data = dicom_ctx.mini_ris_client.get_order_for_mwl(order_id)
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error querying order: {str(e)}",
+                "order_id": order_id,
+            }
+        
+        if not order_data:
+            return {
+                "success": False,
+                "message": f"Order {order_id} not found in mini-RIS database",
+                "order_id": order_id,
+            }
+        
+        # Validate required data
+        if not order_data.get('scheduled_start'):
+            return {
+                "success": False,
+                "message": f"Order {order_id} has no scheduled start time. Cannot create MWL.",
+                "order_id": order_id,
+                "order_status": order_data.get('order_status'),
+            }
+        
+        # Build DICOM patient name (Family^Given)
+        patient_name = f"{order_data['family_name']}^{order_data['given_name']}"
+        
+        # Build performing physician name if available
+        performing_physician_name = None
+        if order_data.get('performing_physician_family') and order_data.get('performing_physician_given'):
+            performing_physician_name = f"{order_data['performing_physician_family']}^{order_data['performing_physician_given']}"
+        
+        # Build Scheduled Procedure Step Sequence (proper DICOM structure)
+        scheduled_dt = order_data['scheduled_start']
+        scheduled_procedure_step = {
+            "Modality": order_data['modality_code'],
+            "ScheduledStationAETitle": scheduled_station_aet,
+            "ScheduledProcedureStepStartDate": scheduled_dt.strftime('%Y%m%d'),
+            "ScheduledProcedureStepStartTime": scheduled_dt.strftime('%H%M%S'),
+            "ScheduledProcedureStepDescription": order_data['procedure_description'],
+            "ScheduledProcedureStepID": f"SPS{order_data['order_id']}",
+        }
+        
+        # Add optional performing physician to SPS
+        if performing_physician_name:
+            scheduled_procedure_step["ScheduledPerformingPhysicianName"] = performing_physician_name
+        
+        # Build complete MWL payload with proper DICOM structure
+        mwl_payload = {
+            "AccessionNumber": order_data['accession_number'],
+            "PatientID": order_data['mrn'],
+            "PatientName": patient_name,
+            "PatientBirthDate": order_data['date_of_birth'].strftime('%Y%m%d'),
+            "PatientSex": order_data['sex'],
+            "StudyInstanceUID": generate_uid(),  # Generate unique Study UID
+            "RequestedProcedureDescription": order_data['procedure_description'],
+            "RequestedProcedureID": order_data['order_number'],
+            "ScheduledProcedureStepSequence": [scheduled_procedure_step],  # SPS as sequence
+        }
+        
+        # Add optional top-level fields
+        if order_data.get('reason_description'):
+            mwl_payload["RequestedProcedureComments"] = order_data['reason_description']
+        
+        # POST to mwl-api
+        try:
+            response = requests.post(
+                f"{mwl_api_url}/mwl/create_from_json",
+                json=mwl_payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            mwl_result = response.json()
+        except requests.exceptions.RequestException as e:
+            return {
+                "success": False,
+                "message": f"Error calling MWL API: {str(e)}",
+                "order_id": order_id,
+                "accession_number": order_data['accession_number'],
+                "mwl_api_url": mwl_api_url,
+                "hint": "Ensure mwl-api service is running: docker compose up -d mwl-api",
+            }
+        
+        return {
+            "success": True,
+            "message": f"MWL created successfully for order {order_id}",
+            "order_id": order_id,
+            "accession_number": order_data['accession_number'],
+            "patient_name": f"{order_data['given_name']} {order_data['family_name']}",
+            "patient_id": order_data['mrn'],
+            "procedure": order_data['procedure_description'],
+            "modality": order_data['modality_code'],
+            "scheduled_time": scheduled_dt.strftime('%Y-%m-%d %H:%M:%S'),
+            "scheduled_station_aet": scheduled_station_aet,
+            "mwl_id": mwl_result.get('id'),
+            "mwl_api_response": mwl_result,
+        }
+
+    @mcp.tool()
+    def create_synthetic_cr_study(
+        accession_number: str,
+        image_mode: str = "auto",
+        image_description: str = "normal",
+        send_to_pacs: bool = True,
+        ctx: Context = None,
+    ) -> Dict[str, Any]:
+        """Create a synthetic CR DICOM study and optionally send to PACS.
+        
+        Simulates a virtual CR device performing an imaging exam. This creates
+        realistic synthetic DICOM images for development, testing, and training.
+        
+        **IMPORTANT**: Synthetic images are for development/testing only.
+        NOT for clinical use or diagnosis. NOT based on real patient data.
+        
+        Workflow:
+        1. Queries MWL for the accession number
+        2. Generates synthetic images based on procedure
+        3. Creates proper DICOM CR instances with all metadata
+        4. Optionally sends to PACS (Orthanc)
+        
+        Image modes:
+        - "auto": Use AI if OpenAI key available, fallback to simple
+        - "ai": Generate realistic images with DALL-E (requires OPENAI_API_KEY)
+        - "simple": Generate basic test images (no API key needed)
+        - "sample": Use pre-made sample images from library
+        
+        Args:
+            accession_number: Accession number from MWL entry
+            image_mode: Image generation mode (auto, ai, simple, sample)
+            image_description: Description for AI (e.g., "pneumonia right lower lobe")
+            send_to_pacs: Whether to send images to PACS after creation
+            
+        Returns:
+            Dictionary with study creation results, DICOM files, and PACS send status
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        
+        if dicom_ctx.mini_ris_client is None:
+            return {
+                "success": False,
+                "message": "Mini-RIS database is not configured.",
+            }
+        
+        # Query MWL for this accession number
+        try:
+            conn = dicom_ctx.mini_ris_client._pool.get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get order data with procedure info
+            cursor.execute("""
+                SELECT 
+                    o.order_id, o.accession_number, o.modality_code,
+                    p.mrn, p.given_name, p.family_name, p.date_of_birth, p.sex,
+                    CONCAT(p.family_name, '^', p.given_name) as patient_name,
+                    op.procedure_description,
+                    proc.body_part_code, proc.typical_views, proc.typical_image_count
+                FROM orders o
+                JOIN patients p ON o.patient_id = p.patient_id
+                JOIN order_procedures op ON o.order_id = op.order_id
+                LEFT JOIN procedures proc ON op.procedure_code = proc.procedure_code
+                WHERE o.accession_number = %s
+                LIMIT 1
+            """, (accession_number,))
+            
+            order_data = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error querying order: {str(e)}",
+                "accession_number": accession_number,
+            }
+        
+        if not order_data:
+            return {
+                "success": False,
+                "message": f"No order found for accession number: {accession_number}",
+                "accession_number": accession_number,
+                "hint": "Create MWL entry first using create_mwl_from_order()"
+            }
+        
+        # Create virtual CR device
+        openai_key = os.getenv("OPENAI_API_KEY")
+        virtual_cr = VirtualCRDevice(openai_api_key=openai_key)
+        
+        # Generate study
+        try:
+            study_result = virtual_cr.create_study(
+                mwl_data=order_data,
+                image_mode=image_mode,
+                image_description=image_description
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error creating synthetic images: {str(e)}",
+                "accession_number": accession_number,
+                "image_mode": image_mode,
+                "hint": "If using 'ai' mode, ensure OPENAI_API_KEY is set in .env"
+            }
+        
+        result = {
+            "success": True,
+            "message": f"Created synthetic CR study with {study_result['num_images']} images",
+            "accession_number": accession_number,
+            "patient_name": f"{order_data['given_name']} {order_data['family_name']}",
+            "patient_id": order_data['mrn'],
+            "procedure": order_data['procedure_description'],
+            "modality": order_data['modality_code'],
+            "study_uid": study_result['study_uid'],
+            "series_uid": study_result['series_uid'],
+            "num_images": study_result['num_images'],
+            "image_mode": study_result['image_mode'],
+            "images": [
+                {"instance": f['instance_number'], "view": f['view']} 
+                for f in study_result['files']
+            ]
+        }
+        
+        # Send to PACS if requested
+        if send_to_pacs:
+            try:
+                current_node = dicom_ctx.config.nodes[dicom_ctx.config.current_node]
+                pacs_result = virtual_cr.send_to_pacs(
+                    dicom_files=study_result['files'],
+                    pacs_host=current_node.host,
+                    pacs_port=current_node.port,
+                    pacs_aet=current_node.ae_title,
+                    calling_aet="VIRTUALCR",
+                    use_tls=current_node.use_tls
+                )
+                
+                result["pacs_send"] = {
+                    "success": pacs_result['success'],
+                    "sent": pacs_result['sent'],
+                    "total": pacs_result['total'],
+                    "destination": f"{current_node.host}:{current_node.port} ({current_node.ae_title})"
+                }
+                
+                if pacs_result['success']:
+                    result["message"] += f" and sent to PACS ({pacs_result['sent']}/{pacs_result['total']})"
+                else:
+                    result["message"] += f" but PACS send failed ({pacs_result['sent']}/{pacs_result['total']} sent)"
+                    
+            except Exception as e:
+                result["pacs_send"] = {
+                    "success": False,
+                    "error": str(e)
+                }
+                result["message"] += " but PACS send failed"
+        
+        return result
 
     @mcp.tool()
     def fhir_create_resource(
