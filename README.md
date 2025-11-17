@@ -370,15 +370,18 @@ create_synthetic_cr_study(
 **Image Generation Modes:**
 
 1. **`simple`** (No API key required) - Basic synthetic images with anatomical outlines
-2. **`ai`** (Requires `OPENAI_API_KEY`) - Realistic AI-generated images via DALL-E 3
+2. **`ai`** (Requires `OPENAI_API_KEY`) - Realistic AI-generated images via OpenAI `gpt-image-1` model
 3. **`auto`** (Default) - Uses AI if key available, falls back to simple
 4. **`sample`** - Uses pre-made sample images from library
 
 ⚠️ **IMPORTANT**:
 
 * Synthetic images are for development/testing/training only. NOT for clinical use.
-* OpenAI's content policy may block medical image generation. The tool will automatically fall back to "simple" mode if AI generation fails.
-* For reliable testing, explicitly use `image_mode="simple"` instead of "auto".
+* AI mode uses OpenAI's `gpt-image-1` model (~30-40 seconds per image)
+* Multi-view studies (2+ images) may timeout in MCP clients but **still complete successfully**
+  * Images are created and sent to PACS even if you see a timeout error
+  * Check Orthanc to verify the images arrived
+* For faster generation or reliable testing, use `image_mode="simple"` instead of "auto"
 
 **Configuration:**
 
@@ -392,12 +395,13 @@ OPENAI_API_KEY=sk-proj-xxxxx  # Optional - enables AI-generated images
 
 ```
 User: "Patient Johnson completed their chest x-ray, create the study"
-LLM: Calls create_synthetic_cr_study(accession_number="ACC-2025-0001")
-Result: 2-view chest study appears in Orthanc!
+LLM: Calls create_synthetic_cr_study(accession_number="ACC-2025-0001", image_mode="simple")
+Result: 2-view chest study appears in Orthanc instantly!
 
-User: "Generate a chest x-ray showing pneumonia in the right lung"
-LLM: Calls with image_description="pneumonia right lower lobe"
-Result: AI generates realistic pneumonia appearance
+User: "Generate a realistic chest x-ray showing pneumonia in the right lung"
+LLM: Calls with image_mode="ai", image_description="pneumonia right lower lobe"
+Result: gpt-image-1 generates photorealistic pneumonia appearance (~40 seconds)
+Note: May show timeout error but images still arrive in PACS
 ```
 
 This completes the full RIS/PACS workflow:

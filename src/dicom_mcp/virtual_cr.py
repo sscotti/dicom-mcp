@@ -5,6 +5,7 @@ WARNING: Synthetic images are for development/testing/training purposes only.
 NOT for clinical use or diagnosis. NOT based on real patient data.
 """
 
+import base64
 import io
 import logging
 import os
@@ -17,7 +18,7 @@ from typing import Dict, Any, Optional, Tuple
 
 import numpy as np
 import pydicom
-import requests
+from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import generate_uid, ExplicitVRLittleEndian
@@ -240,50 +241,57 @@ class VirtualCRDevice:
     def _generate_ai_image(
         self, modality: str, body_part: str, view: str, description: str
     ) -> Image.Image:
-        """Generate realistic CR image using OpenAI DALL-E."""
+        """Generate realistic CR image using OpenAI image models."""
         if not self.openai_api_key:
             raise ValueError("OpenAI API key required for AI image generation")
         
-        # Build optimized prompt
+        # Build prompt for medical imaging
         prompt = self._build_ai_prompt(modality, body_part, view, description)
         
-        logger.info(f"Generating AI image with prompt: {prompt[:100]}...")
+        logger.info(f"Prompt: {prompt[:150]}...")
         
-        # Call OpenAI API
-        headers = {
-            "Authorization": f"Bearer {self.openai_api_key}",
-            "Content-Type": "application/json"
-        }
+        # Initialize OpenAI client with extended timeout
+        client = OpenAI(
+            api_key=self.openai_api_key,
+            timeout=90.0
+        )
         
-        payload = {
-            "model": "dall-e-3",
-            "prompt": prompt,
-            "n": 1,
-            "size": "1024x1024",
-            "quality": "standard",
-            "style": "natural"
-        }
-        
+        # Generate with gpt-image-1
         try:
-            response = requests.post(
-                "https://api.openai.com/v1/images/generations",
-                headers=headers,
-                json=payload,
-                timeout=60
+            logger.info("Generating with gpt-image-1...")
+            response = client.images.generate(
+                model="gpt-image-1",
+                prompt=prompt,
+                size="1024x1024",  # Can use "512x512" for faster generation
+                n=1
+                # Note: gpt-image-1 doesn't support response_format parameter
             )
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            error_detail = response.json() if response.content else {}
-            logger.error(f"OpenAI API error: {error_detail}")
-            raise Exception(f"OpenAI API failed: {error_detail.get('error', {}).get('message', str(e))}")
-        
-        # Download image
-        image_url = response.json()['data'][0]['url']
-        img_response = requests.get(image_url, timeout=30)
-        img_response.raise_for_status()
+            
+            # Handle response - can be URL or base64
+            if not response.data:
+                raise Exception("No data in response")
+            
+            if hasattr(response.data[0], 'b64_json') and response.data[0].b64_json:
+                # Base64 encoded
+                image_data = base64.b64decode(response.data[0].b64_json)
+                logger.info(f"Image received (b64) - {len(image_data)} bytes")
+            elif hasattr(response.data[0], 'url') and response.data[0].url:
+                # URL - need to download
+                import requests
+                logger.info(f"Downloading image from URL: {response.data[0].url[:50]}...")
+                img_response = requests.get(response.data[0].url, timeout=30)
+                img_response.raise_for_status()
+                image_data = img_response.content
+                logger.info(f"Image downloaded (url) - {len(image_data)} bytes")
+            else:
+                raise Exception("Unexpected response format - no b64_json or url")
+                
+        except Exception as e:
+            logger.error(f"gpt-image-1 generation failed: {e}", exc_info=True)
+            raise Exception(f"gpt-image-1 failed: {str(e)}")
         
         # Convert to grayscale and resize to CR dimensions
-        img = Image.open(io.BytesIO(img_response.content)).convert('L')
+        img = Image.open(io.BytesIO(image_data)).convert('L')
         img = img.resize((2048, 2048), Image.Resampling.LANCZOS)
         
         # Post-process for CR appearance
@@ -307,20 +315,23 @@ class VirtualCRDevice:
         
         body_text = body_map.get(body_part, body_part.lower())
         
-        # Use less explicit medical terminology to avoid content filters
-        prompt = f"""Educational anatomical illustration of human {body_text} in grayscale,
-showing skeletal structure and tissue, monochrome X-ray style visualization,
-high contrast black and white scientific diagram, anatomical teaching reference,
-{view} view position"""
+        # Build prompt emphasizing photorealistic clinical appearance
+        prompt = f"""Photorealistic chest X-ray radiograph image from a hospital radiology department.
+Real clinical {view} view {body_text} X-ray with authentic medical imaging characteristics.
+Actual radiographic film appearance showing natural asymmetry, realistic tissue densities,
+organic bone structure with normal variations. Heart positioned on left side, lung fields
+with natural vascular markings, realistic rib spacing and contours. Authentic grayscale
+gradients from dense bone (bright white) through soft tissue to lung air spaces (dark gray).
+Natural imperfections in patient positioning, realistic scatter radiation patterns"""
         
         if description and description.lower() != "normal":
-            prompt += f", demonstrating {description} appearance"
+            prompt += f", with visible {description}"
         else:
-            prompt += ", showing normal anatomy"
+            prompt += ", unremarkable study with no acute findings"
         
-        prompt += """, no text labels, no watermarks, clean background,
-educational medical illustration, scientific anatomical reference,
-suitable for medical education and training purposes"""
+        prompt += """. Genuine medical radiology imaging quality, not illustration or diagram.
+Raw radiograph appearance as acquired from CR detector, suitable for clinical review and
+medical training purposes only. Photographic realism required."""
         
         return prompt
     
