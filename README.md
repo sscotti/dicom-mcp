@@ -210,7 +210,7 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 * `fhir_create_resource` - Create new FHIR resources (Patient, ImagingStudy, ServiceRequest, etc.)
 * `fhir_update_resource` - Update existing FHIR resources
 
-See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for configuration details.
+See FHIR_SERVERS.md for configuration details.
 
 **Mini-RIS Tools (when MySQL is configured):**
 
