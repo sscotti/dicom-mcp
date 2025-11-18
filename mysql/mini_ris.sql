@@ -178,22 +178,29 @@ CREATE TABLE imaging_studies (
 ) ENGINE=InnoDB;
 
 DROP TABLE IF EXISTS reports;
-CREATE TABLE reports (
-  report_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  imaging_study_id INT UNSIGNED NOT NULL,
-  report_number VARCHAR(32) NOT NULL UNIQUE,
-  author_provider_id INT UNSIGNED,
-  report_status ENUM('Preliminary','Final','Amended','Cancelled') DEFAULT 'Preliminary',
-  report_datetime DATETIME,
-  report_text LONGTEXT,
-  impression TEXT,
-  fhir_diagnostic_report_id VARCHAR(64),
-  hl7_message_control_id VARCHAR(32),
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_report_imaging_study FOREIGN KEY (imaging_study_id) REFERENCES imaging_studies(imaging_study_id),
-  CONSTRAINT fk_report_author FOREIGN KEY (author_provider_id) REFERENCES providers(provider_id)
-) ENGINE=InnoDB;
+CREATE TABLE `reports` (
+  `report_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `imaging_study_id` int unsigned NOT NULL,
+  `report_number` varchar(32) NOT NULL,
+  `author_provider_id` int unsigned DEFAULT NULL,
+  `report_status` enum('Preliminary','Final','Amended','Cancelled') DEFAULT 'Preliminary',
+  `report_datetime` datetime DEFAULT NULL,
+  `report_text` longtext,
+  `impression` text,
+  `fhir_diagnostic_report_id` varchar(64) DEFAULT NULL,
+  `dicom_sop_instance_uid` varchar(64) DEFAULT NULL,
+  `dicom_series_instance_uid` varchar(64) DEFAULT NULL,
+  `hl7_message_control_id` varchar(32) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`report_id`),
+  UNIQUE KEY `report_number` (`report_number`),
+  KEY `fk_report_imaging_study` (`imaging_study_id`),
+  KEY `fk_report_author` (`author_provider_id`),
+  KEY `idx_report_sop_uid` (`dicom_sop_instance_uid`),
+  CONSTRAINT `fk_report_author` FOREIGN KEY (`author_provider_id`) REFERENCES `providers` (`provider_id`),
+  CONSTRAINT `fk_report_imaging_study` FOREIGN KEY (`imaging_study_id`) REFERENCES `imaging_studies` (`imaging_study_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- DICOM MWL/MPPS integration tables
 DROP TABLE IF EXISTS mpps;
@@ -416,23 +423,9 @@ VALUES
   (3, 'CR_KNEE_2V', 'Knee X-Ray 2 Views', 'Right')
 ON DUPLICATE KEY UPDATE procedure_description = VALUES(procedure_description);
 
-INSERT INTO imaging_studies (order_id, study_instance_uid, study_started, status, number_of_series, number_of_instances)
-VALUES
-  (1, '1.2.840.113619.2.55.3.2831164352.2025.6.1.9.30.1', '2025-06-01 09:32:00', 'Available', 1, 2),
-  (2, '1.2.840.113619.2.55.3.2831164352.2025.6.2.10.15.1', '2025-06-02 10:18:00', 'Available', 1, 1)
-ON DUPLICATE KEY UPDATE status = VALUES(status);
-
-INSERT INTO reports (
-  imaging_study_id, report_number, author_provider_id, report_status, report_datetime,
-  report_text, impression
-) VALUES
-  (1, 'RPT-2025-0001', 2, 'Final', '2025-06-01 11:00:00',
-   'Two-view chest radiograph demonstrates clear lung fields bilaterally. Heart size is normal. No acute bony abnormality. No pleural effusion or pneumothorax.',
-   'No acute cardiopulmonary findings.'),
-  (2, 'RPT-2025-0002', 2, 'Preliminary', '2025-06-02 11:30:00',
-   'Single view supine abdominal radiograph demonstrates normal bowel gas pattern. No evidence of free air or obstruction. No radiopaque calculi identified.',
-   'Normal abdominal radiograph.')
-ON DUPLICATE KEY UPDATE report_status = VALUES(report_status), report_text = VALUES(report_text);
+-- Imaging studies and reports are now created dynamically through the workflow:
+-- 1. create_synthetic_cr_study() creates imaging_studies records when studies are sent to PACS
+-- 2. create_radiology_report() creates reports after studies are available
 
 INSERT INTO mwl_tasks (
   order_id, scheduled_station_aet, scheduled_station_name, scheduled_start,

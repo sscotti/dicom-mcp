@@ -4,9 +4,9 @@
 [![MCP Python SDK](https://img.shields.io/badge/MCP-Python%20SDK-blue)](https://github.com/modelcontextprotocol/python-sdk)
 [![MCP JAM](https://img.shields.io/badge/MCP-JAM-orange)](https://www.mcpjam.com)
 
-Originally cloned from <https://github.com/ChristianHinge/dicom-mcp>; now heavily extended and maintained separately.
+Originally cloned from <https://github.com/ChristianHinge/dicom-mcp>; now extended and maintained separately (No fork)
 
-This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.
+This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.  Note that if you are using the Cursor IDE, or others, you can configured the IDE to also access the server in some cases, in ˜/.cursor/mcp.json, etc.  <https://cursor.com/docs/context/mcp#what-is-mcp>
 
 Enables AI assistants to query, read, and move data on PACS using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development using ChatGPT as the LLM.  Also integrated with FHIR and a mini-RIS DB.
 
@@ -16,6 +16,7 @@ Enables AI assistants to query, read, and move data on PACS using the standard M
 
 * **🔍 Query Orthanc**: Search for patients, studies, series, and instances using various criteria.
 * **📄 Read DICOM Reports (PDF)**: Retrieve DICOM instances containing encapsulated PDFs (e.g., clinical reports) and extract the text content.
+* **📄 Create RIS and DICOM Reports (PDF)**:: Create sample reports in PDF format.
 * **➡️ Send DICOM Images**: Send series or studies to other DICOM destinations, e.g. AI endpoints for image segmentation, classification, etc.
 * **⚙️ Utilities**: Manage connections and understand query options.
 * **⚙️ FHIR methods**:
@@ -98,9 +99,7 @@ mini_ris:
 > DICOM-MCP is not meant for clinical use, and should not be connected with live hospital databases or databases with patient-sensitive data. Doing so could lead to both loss of patient data, and leakage of patient data onto the internet. DICOM-MCP can be used with locally hosted open-weight LLMs for complete data privacy.
 >
 > [!NOTE]
-> This project uses **MCP Jam exclusively** for all development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with
-
-relative paths that you can adapt to your setup.  That can be imported as JSON into MCPJAM to configure the interface.
+> This project uses **MCP Jam** for development, testing, and LLM integration needs. The `mcp-config.example.json` file is provided as a template with relative paths that you can adapt to your setup.  That can be imported as JSON into MCPJAM to configure the interface.
 
 ### Docker Container Setup (Orthancs, FHIR, PostGres and MySQL)
 
@@ -109,7 +108,7 @@ docker-compose up -d
 dotenv run -- pytest # uploads dummy pdf data to ORTHANC server
 ```
 
-UI at [http://localhost:8042](http://localhost:8042) and [http://localhost:8043](http://localhost:8043)
+UI at [https://localhost:8042](https://localhost:8042) and [https://localhost:8043](https://localhost:8043), note that the repo is configured with TLS certs, so https.
 
 HAPI FHIR will be available at [http://localhost:8080/fhir](http://localhost:8080/fhir)
 
@@ -117,7 +116,7 @@ See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for detailed configuration optio
 
 ### 🔌 Using with MCP Jam
 
-**MCP Jam** is the recommended tool for testing and exploring your DICOM MCP server. It offers an interface with **Guest Mode** for immediate testing without any setup.
+**MCP Jam** is the recommended tool for testing and exploring your DICOM MCP server. It offers an interface with **Guest Mode** for immediate testing without any setup.  Although, if can also use something like the Cursor IDE after configured.
 
 **Start MCP Jam:**
 
@@ -218,6 +217,14 @@ See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for configuration details.
 * `list_mini_ris_patients` - Browse patient demographics stored in the mini-RIS schema (filter by MRN or name)
 * `create_mwl_from_order` - Create a DICOM Modality Worklist entry from an existing mini-RIS order
 * `create_synthetic_cr_study` - Generate synthetic CR DICOM images and send to PACS (virtual modality)
+
+**Radiology Reporting Tools (when MySQL is configured):**
+
+* `get_study_for_report` - Retrieve complete study information for radiology reporting
+* `list_radiologists` - List available radiologists with credentials
+* `create_radiology_report` - Create structured radiology report with findings and impression
+* `generate_report_pdf` - Generate professional PDF from report (base64 encoded)
+* `attach_report_to_pacs` - Upload report PDF to PACS as DICOM Encapsulated PDF
 
 **Mini-RIS Database Schema:**
 
@@ -393,7 +400,7 @@ OPENAI_API_KEY=sk-proj-xxxxx  # Optional - enables AI-generated images
 
 **LLM-Driven Workflow Examples:**
 
-```
+```txt
 User: "Patient Johnson completed their chest x-ray, create the study"
 LLM: Calls create_synthetic_cr_study(accession_number="ACC-2025-0001", image_mode="simple")
 Result: 2-view chest study appears in Orthanc instantly!
@@ -406,8 +413,128 @@ Note: May show timeout error but images still arrive in PACS
 
 This completes the full RIS/PACS workflow:
 
+```txt
+Order → MWL → Virtual Device → DICOM Images → PACS Storage → Viewing → Reporting
 ```
-Order → MWL → Virtual Device → DICOM Images → PACS Storage → Viewing
+
+**Radiology Reporting** 🆕
+
+Create professional radiology reports and attach them as DICOM Encapsulated PDFs to studies in your PACS:
+
+```python
+# Complete reporting workflow
+# 1. Get study information for reporting
+study_info = get_study_for_report(accession_number="ACC-2025-0001")
+
+# 2. List available radiologists
+radiologists = list_radiologists()
+
+# 3. Create a radiology report
+report = create_radiology_report(
+    accession_number="ACC-2025-0001",
+    findings="""
+    The heart is normal in size. The mediastinum is unremarkable.
+    Both lungs are clear without focal consolidation, pleural effusion, or pneumothorax.
+    No acute bony abnormality is identified.
+    """,
+    impression="Normal chest radiograph. No acute cardiopulmonary process.",
+    author_provider_id=3,  # Dr. Casey Wells (from list_radiologists)
+    report_status="Final"
+)
+
+# 4. Generate PDF preview (optional)
+pdf_data = generate_report_pdf(report_id=report['report_id'])
+# Returns base64 encoded PDF for preview/download
+
+# 5. Attach report to PACS as DICOM Encapsulated PDF
+result = attach_report_to_pacs(report_id=report['report_id'])
+# Report PDF now appears as a DOC series in Orthanc!
+```
+
+**Report Workflow Features:**
+
+* **Database Storage**: Reports saved in mini-RIS `reports` table with full audit trail
+* **Professional PDF**: Generated with ReportLab (default) - institutional header, demographics, findings, impression, signature
+* **Alternative PDF Library**: WeasyPrint is also installed as an option for HTML/CSS-based PDF generation (useful for web-based report templates)
+* **DICOM Standard**: Encapsulated PDF (SOP Class: `1.2.840.10008.5.1.4.1.1.104.1`)
+* **PACS Integration**: PDF attached to original study as new series (Modality: DOC, Series #9999)
+* **Status Tracking**: Preliminary → Final → Amended → Cancelled
+* **Provider Attribution**: Links to radiologist in mini-RIS providers table
+
+**LLM-Driven Reporting Examples:**
+
+```txt
+User: "Create a final report for accession ACC-2025-0001. Normal chest x-ray."
+LLM: → get_study_for_report() to fetch patient/study data
+     → list_radiologists() to get available radiologists
+     → create_radiology_report() with structured findings/impression
+     → attach_report_to_pacs() to send PDF to PACS
+Result: Complete report in database + PDF in PACS!
+
+User: "Generate a preliminary report for the knee study showing a tibial fracture"
+LLM: → Creates report with report_status="Preliminary"
+     → Structures findings describing the fracture
+     → Generates and attaches PDF to PACS
+Result: Preliminary report available for review
+
+User: "Show me the PDF for report ID 5"
+LLM: → generate_report_pdf(report_id=5)
+     → Returns base64 PDF for display/download
+```
+
+**Report Status Workflow:**
+
+```txt
+Preliminary → Final → [Amended] → [Cancelled]
+```
+
+Each status change creates a new audit trail entry with timestamp.
+
+**Database Schema:**
+
+```sql
+reports:
+  - report_id (PK)
+  - imaging_study_id (FK to imaging_studies)
+  - report_number (unique, e.g., "RPT-ACC-2025-0001-20250601120000")
+  - author_provider_id (FK to providers - radiologist)
+  - report_status (enum: Preliminary, Final, Amended, Cancelled)
+  - report_datetime (timestamp)
+  - report_text (LONGTEXT - findings)
+  - impression (TEXT - clinical impression)
+  - dicom_sop_instance_uid (populated after PACS attachment)
+  - dicom_series_instance_uid (populated after PACS attachment)
+```
+
+**Complete Imaging + Reporting Workflow:**
+
+```txt
+┌─────────────────────────────────────────────────────────┐
+│ 1. Order Management (Mini-RIS)                          │
+│    create_mwl_from_order(order_id=1)                    │
+└────────────────┬────────────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────────────┐
+│ 2. Image Acquisition (Virtual CR Device)                │
+│    create_synthetic_cr_study(accession="ACC-2025-0001") │
+└────────────────┬────────────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────────────┐
+│ 3. PACS Storage (Orthanc)                               │
+│    Images viewable at http://localhost:8042             │
+└────────────────┬────────────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────────────┐
+│ 4. Radiology Reporting                                  │
+│    create_radiology_report(...)                         │
+│    attach_report_to_pacs(report_id=1)                   │
+└────────────────┬────────────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────────────┐
+│ 5. Complete Study in PACS                               │
+│    - CR Images (Series 1, 2)                            │
+│    - Report PDF (Series 9999, Modality DOC)             │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### 🧪 Synthetic Data for Testing

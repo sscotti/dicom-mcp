@@ -2,15 +2,20 @@
 DICOM MCP Server main implementation.
 """
 
+import base64
 import logging
 import os
 import requests
+import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Any, AsyncIterator, Optional, Tuple
 
 from mcp.server.fastmcp import FastMCP, Context
-from pydicom.uid import generate_uid
+import pydicom
+from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.uid import generate_uid, ExplicitVRLittleEndian
 
 from .attributes import ATTRIBUTE_PRESETS
 from .dicom_client import DicomClient
@@ -18,6 +23,7 @@ from .fhir_client import FhirClient
 from .mysql_client import MiniRisClient, MiniRisConnectionSettings
 from .config import DicomConfiguration, load_config
 from .virtual_cr import VirtualCRDevice
+from .report_generator import generate_radiology_report_pdf
 
 # Configure logging
 logger = logging.getLogger("dicom_mcp")
@@ -1116,6 +1122,34 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 
                 if pacs_result['success']:
                     result["message"] += f" and sent to PACS ({pacs_result['sent']}/{pacs_result['total']})"
+                    
+                    # Create imaging_study record in RIS to keep it in sync
+                    try:
+                        study_started = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        imaging_study_id = dicom_ctx.mini_ris_client.create_imaging_study(
+                            order_id=order_data['order_id'],
+                            study_instance_uid=study_result['study_uid'],
+                            study_started=study_started,
+                            status="Available",
+                            number_of_series=1,  # Single series for CR studies
+                            number_of_instances=study_result['num_images']
+                        )
+                        
+                        result["imaging_study"] = {
+                            "imaging_study_id": imaging_study_id,
+                            "study_instance_uid": study_result['study_uid'],
+                            "status": "Available",
+                            "created_in_ris": True
+                        }
+                        result["message"] += " and registered in RIS"
+                        logger.info(f"Created imaging_study record {imaging_study_id} for order {order_data['order_id']}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create imaging_study record: {e}")
+                        result["imaging_study"] = {
+                            "error": str(e),
+                            "created_in_ris": False
+                        }
                 else:
                     result["message"] += f" but PACS send failed ({pacs_result['sent']}/{pacs_result['total']} sent)"
                     
@@ -1201,5 +1235,355 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             return dicom_ctx.fhir_client.update_resource(resource)
         except Exception as e:
             raise Exception(f"Error updating FHIR resource: {str(e)}")
+    
+    # =========================================================================
+    # Radiology Reporting Tools
+    # =========================================================================
+    
+    @mcp.tool()
+    def get_study_for_report(
+        accession_number: str,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Get comprehensive study information for radiology reporting.
+        
+        Retrieves patient demographics, study details, and ordering information
+        needed to create a radiology report.
+        
+        Args:
+            accession_number: The accession number of the study to report on
+            
+        Returns:
+            Dictionary containing study, patient, and order information
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.mini_ris_client:
+            raise ValueError("Mini-RIS database is not configured")
+        
+        # Get study from mini-RIS
+        study = dicom_ctx.mini_ris_client.get_study_by_accession(accession_number)
+        
+        if not study:
+            raise ValueError(f"No study found with accession number: {accession_number}")
+        
+        # Format dates for display
+        if study.get('date_of_birth'):
+            study['date_of_birth'] = str(study['date_of_birth'])
+        if study.get('study_date'):
+            study['study_date'] = str(study['study_date'])
+        
+        return {
+            "success": True,
+            "study": study
+        }
+    
+    @mcp.tool()
+    def list_radiologists(ctx: Context = None) -> Dict[str, Any]:
+        """List available radiologists for report authorship.
+        
+        Returns:
+            List of radiologists with their IDs, names, and provider type
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.mini_ris_client:
+            raise ValueError("Mini-RIS database is not configured")
+        
+        # Get providers with Radiologist type
+        radiologists = dicom_ctx.mini_ris_client.list_providers(provider_types=['Radiologist'])
+        
+        return {
+            "success": True,
+            "count": len(radiologists),
+            "radiologists": radiologists
+        }
+    
+    @mcp.tool()
+    def create_radiology_report(
+        accession_number: str,
+        findings: str,
+        impression: str,
+        author_provider_id: Optional[int] = None,
+        report_status: str = "Preliminary",
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Create a radiology report for a study.
+        
+        Creates a structured radiology report and saves it to the mini-RIS database.
+        The report can later be converted to PDF and attached to the PACS.
+        
+        Args:
+            accession_number: The accession number of the study being reported
+            findings: The detailed findings/body of the report
+            impression: The clinical impression/conclusion
+            author_provider_id: Optional radiologist provider ID (use list_radiologists to get IDs)
+            report_status: Report status - one of: Preliminary, Final, Amended, Cancelled
+            
+        Returns:
+            Dictionary with the created report_id and confirmation
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.mini_ris_client:
+            raise ValueError("Mini-RIS database is not configured")
+        
+        # Validate report status
+        valid_statuses = ['Preliminary', 'Final', 'Amended', 'Cancelled']
+        if report_status not in valid_statuses:
+            raise ValueError(f"Invalid report_status. Must be one of: {', '.join(valid_statuses)}")
+        
+        # Get study information
+        study = dicom_ctx.mini_ris_client.get_study_by_accession(accession_number)
+        if not study:
+            raise ValueError(f"No study found with accession number: {accession_number}")
+        
+        imaging_study_id = study['imaging_study_id']
+        
+        # Generate report number
+        report_number = f"RPT-{accession_number}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        # Create report in database
+        report_id = dicom_ctx.mini_ris_client.create_report(
+            imaging_study_id=imaging_study_id,
+            report_number=report_number,
+            report_text=findings,
+            impression=impression,
+            author_provider_id=author_provider_id,
+            report_status=report_status
+        )
+        
+        return {
+            "success": True,
+            "report_id": report_id,
+            "report_number": report_number,
+            "accession_number": accession_number,
+            "status": report_status,
+            "message": f"Report created successfully (ID: {report_id})"
+        }
+    
+    @mcp.tool()
+    def generate_report_pdf(
+        report_id: int,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Generate a professional PDF for a radiology report.
+        
+        Creates a formatted PDF document from a report stored in the mini-RIS database.
+        The PDF includes patient demographics, study information, findings, and impression.
+        
+        Args:
+            report_id: The report ID to generate PDF for
+            
+        Returns:
+            Dictionary with PDF data (base64 encoded) and metadata
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.mini_ris_client:
+            raise ValueError("Mini-RIS database is not configured")
+        
+        # Get report with all related data
+        report_data = dicom_ctx.mini_ris_client.get_report_by_id(report_id)
+        
+        if not report_data:
+            raise ValueError(f"No report found with ID: {report_id}")
+        
+        # Generate PDF
+        pdf_bytes = generate_radiology_report_pdf(report_data)
+        
+        # Encode as base64 for JSON transport
+        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        
+        return {
+            "success": True,
+            "report_id": report_id,
+            "report_number": report_data['report_number'],
+            "pdf_size_bytes": len(pdf_bytes),
+            "pdf_base64": pdf_base64,
+            "message": f"PDF generated successfully ({len(pdf_bytes)} bytes)"
+        }
+    
+    @mcp.tool()
+    def attach_report_to_pacs(
+        report_id: int,
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Attach a radiology report PDF to its study in PACS.
+        
+        Generates a DICOM Encapsulated PDF from the report and uploads it to Orthanc
+        using the REST API, linking it to the original imaging study. The PDF will 
+        appear as a new series in the study.
+        
+        Performs sanity checks:
+        - Verifies the study exists in Orthanc
+        - Ensures StudyInstanceUID is unique
+        - Links PDF to correct parent study
+        
+        Args:
+            report_id: The report ID to attach
+            
+        Returns:
+            Dictionary with DICOM identifiers and upload confirmation
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.mini_ris_client:
+            raise ValueError("Mini-RIS database is not configured")
+        
+        # Get report with all related data
+        report_data = dicom_ctx.mini_ris_client.get_report_by_id(report_id)
+        
+        if not report_data:
+            raise ValueError(f"No report found with ID: {report_id}")
+        
+        study_instance_uid = report_data.get('study_instance_uid')
+        if not study_instance_uid:
+            raise ValueError(f"Report {report_id} is not linked to a study with a valid StudyInstanceUID")
+        
+        # Log the study we're attaching to
+        logger.info(f"Attaching report {report_id} to study {study_instance_uid} (Accession: {report_data['accession_number']})")
+        
+        # Setup Orthanc connection
+        # Orthanc REST API is on port 8042 (may use HTTPS if configured)
+        current_node = dicom_ctx.config.nodes[dicom_ctx.config.current_node]
+        # Use HTTPS for REST API and disable SSL verification for self-signed certs
+        orthanc_base_url = f"https://{current_node.host}:8042"
+        
+        # Disable SSL verification for self-signed certificates
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        try:
+            # SANITY CHECK 1: Find the study in Orthanc by StudyInstanceUID
+            logger.info(f"Searching Orthanc for study with UID: {study_instance_uid}")
+            search_response = requests.post(
+                f"{orthanc_base_url}/tools/find",
+                json={"Level": "Study", "Query": {"StudyInstanceUID": study_instance_uid}},
+                timeout=10,
+                verify=False  # Disable SSL verification for self-signed certs
+            )
+            search_response.raise_for_status()
+            study_ids = search_response.json()
+            
+            # SANITY CHECK 2: Verify study exists
+            if not study_ids:
+                raise ValueError(
+                    f"Study with UID {study_instance_uid} not found in Orthanc PACS. "
+                    f"Ensure the imaging study exists before attaching the report."
+                )
+            
+            # SANITY CHECK 3: Ensure uniqueness (should only be one study)
+            if len(study_ids) > 1:
+                logger.warning(f"Multiple studies found with same UID: {study_ids}")
+                raise ValueError(
+                    f"Multiple studies found with StudyInstanceUID {study_instance_uid}. "
+                    f"DICOM hierarchy violation - StudyInstanceUID must be unique!"
+                )
+            
+            parent_study_id = study_ids[0]
+            logger.info(f"✓ Study verified in Orthanc (ID: {parent_study_id})")
+            
+            # SANITY CHECK 4: Verify AccessionNumber matches (optional but recommended)
+            study_info_response = requests.get(
+                f"{orthanc_base_url}/studies/{parent_study_id}",
+                timeout=10,
+                verify=False  # Disable SSL verification for self-signed certs
+            )
+            study_info_response.raise_for_status()
+            study_info = study_info_response.json()
+            
+            orthanc_accession = study_info.get('MainDicomTags', {}).get('AccessionNumber', '')
+            ris_accession = report_data['accession_number']
+            
+            if orthanc_accession and orthanc_accession != ris_accession:
+                logger.warning(
+                    f"AccessionNumber mismatch: Orthanc={orthanc_accession}, RIS={ris_accession}"
+                )
+                # Don't fail, but warn - AccessionNumber might not always be populated
+            else:
+                logger.info(f"✓ AccessionNumber verified: {ris_accession}")
+            
+            # Generate PDF
+            logger.info("Generating report PDF...")
+            pdf_bytes = generate_radiology_report_pdf(report_data)
+            logger.info(f"✓ PDF generated ({len(pdf_bytes)} bytes)")
+            
+            # Encode PDF as base64 data URI
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+            pdf_data_uri = f"data:application/pdf;base64,{pdf_base64}"
+            
+            # Create DICOM using Orthanc API with Parent parameter
+            # Note: When using Parent, Orthanc auto-generates UIDs and inherits patient/study tags
+            # We should NOT manually specify SOPInstanceUID or SeriesInstanceUID
+            logger.info("Creating DICOM Encapsulated PDF in Orthanc...")
+            create_payload = {
+                "Parent": parent_study_id,  # This links the PDF to the existing study
+                "Tags": {
+                    "SeriesDescription": f"Radiology Report - {report_data['report_status']}",
+                    "Modality": "DOC",
+                    "SeriesNumber": "9999",
+                    "SOPClassUID": "1.2.840.10008.5.1.4.1.1.104.1",  # Encapsulated PDF Storage
+                    "InstanceNumber": "1",
+                    "MIMETypeOfEncapsulatedDocument": "application/pdf"
+                },
+                "Content": pdf_data_uri
+            }
+            
+            create_response = requests.post(
+                f"{orthanc_base_url}/tools/create-dicom",
+                json=create_payload,
+                timeout=30,
+                verify=False  # Disable SSL verification for self-signed certs
+            )
+            
+            # Log the response for debugging
+            if create_response.status_code != 200:
+                logger.error(f"Orthanc rejected request. Status: {create_response.status_code}")
+                logger.error(f"Response: {create_response.text}")
+            
+            create_response.raise_for_status()
+            result = create_response.json()
+            
+            instance_id = result.get('ID')
+            logger.info(f"✓ PDF instance created in Orthanc (ID: {instance_id})")
+            
+            # Get the actual DICOM UIDs that Orthanc generated
+            instance_info_response = requests.get(
+                f"{orthanc_base_url}/instances/{instance_id}",
+                timeout=10,
+                verify=False
+            )
+            instance_info_response.raise_for_status()
+            instance_info = instance_info_response.json()
+            
+            # Extract the UIDs from Orthanc's response
+            sop_instance_uid = instance_info.get('MainDicomTags', {}).get('SOPInstanceUID', '')
+            series_uid = instance_info.get('ParentSeries', '')
+            
+            # Update report in database with DICOM identifiers
+            if sop_instance_uid and series_uid:
+                dicom_ctx.mini_ris_client.update_report_dicom_ids(
+                    report_id=report_id,
+                    dicom_sop_instance_uid=sop_instance_uid,
+                    dicom_series_instance_uid=series_uid
+                )
+                logger.info("✓ Report updated in RIS database")
+            
+            return {
+                "success": True,
+                "report_id": report_id,
+                "report_number": report_data['report_number'],
+                "study_instance_uid": study_instance_uid,
+                "parent_study_id": parent_study_id,
+                "accession_number": ris_accession,
+                "series_instance_uid": series_uid,
+                "sop_instance_uid": sop_instance_uid,
+                "orthanc_instance_id": instance_id,
+                "orthanc_url": f"{orthanc_base_url}/studies/{parent_study_id}",
+                "message": f"Report PDF successfully attached to study as Series 9999"
+            }
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Orthanc API communication error: {e}")
+            raise Exception(f"Failed to communicate with Orthanc: {str(e)}")
+        except Exception as e:
+            logger.error(f"Failed to attach report: {e}")
+            raise Exception(f"Failed to attach report to PACS: {str(e)}")
     
     return mcp

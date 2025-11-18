@@ -17,13 +17,14 @@ dependencies = [
     "requests>=2.31.0",
     "pydicom>=2.4.0",
     "openai>=1.0.0",
+    "reportlab",
+    "weasyprint>=62.0"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=6.0.0",
-    "reportlab"
 ]
 [project.scripts]
 dicom-mcp = "dicom_mcp.__main__:main"
