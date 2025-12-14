@@ -127,7 +127,23 @@ current_fhir: "firely"  # Switch to firely, siim, or hapi_local
 
 ## Switching FHIR Servers
 
-To switch between configured FHIR servers:
+You can switch between configured FHIR servers in two ways:
+
+### Method 1: Dynamic Switching (Recommended - No Restart Required)
+
+Use the `switch_fhir_server` tool to change servers without restarting:
+
+```python
+# Example: Switch to SIIM server
+switch_fhir_server(server_name="siim")
+
+# Verify the switch
+verify_fhir_connection()
+```
+
+This is the preferred method as it doesn't require restarting the MCP server.
+
+### Method 2: Configuration File (Requires Restart)
 
 1. **Update `configuration.yaml`:**
    - Change `current_fhir: "server_name"` to the desired server
@@ -145,9 +161,12 @@ Once a FHIR server is configured, you'll have access to:
 
 - `verify_fhir_connection` - Test FHIR server connectivity
 - `list_fhir_servers` - List configured FHIR servers
+- `switch_fhir_server` - Switch to a different FHIR server without restarting
 - `fhir_search_patient` - Search for Patient resources
 - `fhir_search_imaging_study` - Search for ImagingStudy resources
 - `fhir_read_resource` - Read any FHIR resource by type and ID
+- `fhir_create_resource` - Create new FHIR resources
+- `fhir_update_resource` - Update existing FHIR resources
 
 ## Troubleshooting
 

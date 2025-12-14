@@ -215,6 +215,8 @@ class MiniRisClient:
                 o.accession_number,
                 o.modality_code,
                 o.reason_description,
+                o.image_generation_prompt,
+                o.report_findings_description,
                 DATE(COALESCE(s.study_started, o.scheduled_start)) AS study_date,
                 TIME(COALESCE(s.study_started, o.scheduled_start)) AS study_time,
                 COALESCE(op.procedure_description, o.reason_description, 'Imaging Study') AS study_description,

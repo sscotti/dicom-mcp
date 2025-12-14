@@ -204,6 +204,7 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 
 * `verify_fhir_connection` - Test FHIR server connectivity
 * `list_fhir_servers` - List configured FHIR servers
+* `switch_fhir_server` - Switch to a different FHIR server without restarting
 * `fhir_search_patient` - Search for Patient resources
 * `fhir_search_imaging_study` - Search for ImagingStudy resources
 * `fhir_read_resource` - Read any FHIR resource by type and ID
@@ -237,6 +238,16 @@ The `mini_ris.sql` schema provides a complete radiology information system with:
   * `modalities` - Standard DICOM modality codes
   * `body_parts` - Anatomical regions for imaging
 * **MWL/MPPS Support**: Tables for Modality Worklist and Modality Performed Procedure Step tracking
+
+**MCP Naming Scheme:**
+
+All data in the mini-RIS uses a consistent "MCP-" prefix/suffix naming scheme to clearly mark it as **development/synthetic data**:
+- MRNs: `MCP-MRN-0001`
+- Accession Numbers: `MCP-ACC-2025-0001`
+- Patient Names: `Johnson-MCP^Alex` (DICOM format)
+- Physician Names: `MCP-Emily^Chen` (DICOM format)
+
+See [MCP_NAMING_SCHEME.md](MCP_NAMING_SCHEME.md) for complete details.
 
 **Setup:**
 
@@ -402,7 +413,7 @@ OPENAI_API_KEY=sk-proj-xxxxx  # Optional - enables AI-generated images
 
 ```txt
 User: "Patient Johnson completed their chest x-ray, create the study"
-LLM: Calls create_synthetic_cr_study(accession_number="ACC-2025-0001", image_mode="simple")
+LLM: Calls create_synthetic_cr_study(accession_number="MCP-ACC-2025-0001", image_mode="simple")
 Result: 2-view chest study appears in Orthanc instantly!
 
 User: "Generate a realistic chest x-ray showing pneumonia in the right lung"
@@ -410,6 +421,45 @@ LLM: Calls with image_mode="ai", image_description="pneumonia right lower lobe"
 Result: gpt-image-1 generates photorealistic pneumonia appearance (~40 seconds)
 Note: May show timeout error but images still arrive in PACS
 ```
+
+**Workflow Consistency with Order-Based Prompts** 🆕
+
+Orders can now include prompts for both image generation and report creation, creating a closed-loop workflow:
+
+1. **Image Generation Prompt** (`image_generation_prompt`): Describes what the images should show
+2. **Report Findings Description** (`report_findings_description`): Describes expected findings for reports
+
+This enables consistent workflows where:
+- Images are generated based on the order's `image_generation_prompt`
+- Reports can use the order's `report_findings_description` as a starting point
+- The entire workflow (Order → Images → Report) is internally consistent
+
+```python
+# Example: Order with prompts
+# Order MCP-ORD-2025-0001 has:
+#   image_generation_prompt: "Chest X-ray showing subtle patchy opacity in right lower lobe"
+#   report_findings_description: "Subtle patchy opacity in right lower lobe consistent with early pneumonia"
+
+# 1. Generate images using order prompt (automatically used if available)
+create_synthetic_cr_study(
+    accession_number="MCP-ACC-2025-0001",
+    image_mode="ai"  # Will use order's image_generation_prompt
+)
+
+# 2. Create report using order findings (optional)
+create_radiology_report(
+    accession_number="MCP-ACC-2025-0001",
+    findings="",  # Empty - will use order's report_findings_description
+    impression="Early pneumonia",
+    use_order_findings=True  # Use order's report_findings_description
+)
+```
+
+**Benefits:**
+- **Consistency**: Images and reports match the original order intent
+- **Automation**: Prompts stored in orders enable fully automated workflows
+- **Testing**: Easy to test how well AI-generated images match expected findings
+- **Traceability**: Complete audit trail from order → images → report
 
 This completes the full RIS/PACS workflow:
 
@@ -424,22 +474,33 @@ Create professional radiology reports and attach them as DICOM Encapsulated PDFs
 ```python
 # Complete reporting workflow
 # 1. Get study information for reporting
-study_info = get_study_for_report(accession_number="ACC-2025-0001")
+study_info = get_study_for_report(accession_number="MCP-ACC-2025-0001")
 
 # 2. List available radiologists
 radiologists = list_radiologists()
 
 # 3. Create a radiology report
+# Option A: Manual findings
 report = create_radiology_report(
-    accession_number="ACC-2025-0001",
+    accession_number="MCP-ACC-2025-0001",
     findings="""
     The heart is normal in size. The mediastinum is unremarkable.
     Both lungs are clear without focal consolidation, pleural effusion, or pneumothorax.
     No acute bony abnormality is identified.
     """,
     impression="Normal chest radiograph. No acute cardiopulmonary process.",
-    author_provider_id=3,  # Dr. Casey Wells (from list_radiologists)
+    author_provider_id=3,  # Dr. MCP-Casey Wells (from list_radiologists)
     report_status="Final"
+)
+
+# Option B: Use order's report_findings_description (if available)
+report = create_radiology_report(
+    accession_number="MCP-ACC-2025-0001",
+    findings="",  # Empty - will use order's report_findings_description
+    impression="Early pneumonia",
+    author_provider_id=3,
+    report_status="Final",
+    use_order_findings=True  # Use order's report_findings_description
 )
 
 # 4. Generate PDF preview (optional)

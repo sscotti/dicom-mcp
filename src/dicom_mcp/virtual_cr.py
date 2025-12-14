@@ -69,11 +69,12 @@ class VirtualCRDevice:
         procedure_desc = mwl_data.get('procedure_description', 'CR Study')
         typical_views = mwl_data.get('typical_views', 'AP')
         typical_count = num_images or int(mwl_data.get('typical_image_count', 1))
+        body_part_code = mwl_data.get('body_part_code', 'CHEST')
         
         # Parse views
         views = self._parse_views(typical_views, typical_count)
         
-        logger.info(f"Creating CR study with {len(views)} images using '{image_mode}' mode")
+        logger.info(f"Creating CR study with {len(views)} images using '{image_mode}' mode (body_part: {body_part_code})")
         
         # Generate images for each view
         study_uid = mwl_data.get('StudyInstanceUID', generate_uid())
@@ -87,21 +88,21 @@ class VirtualCRDevice:
                     try:
                         image = self._generate_ai_image(
                             mwl_data['modality_code'],
-                            mwl_data.get('body_part_code', 'CHEST'),
+                            body_part_code,
                             view,
                             image_description
                         )
                     except Exception as ai_error:
                         logger.warning(f"AI generation failed ({str(ai_error)}), falling back to simple mode")
                         image = self._generate_simple_image(
-                            mwl_data.get('body_part_code', 'CHEST'),
+                            body_part_code,
                             view,
                             mwl_data
                         )
                         image_mode = "simple"  # Update mode for result
                 elif image_mode == "sample":
                     image = self._load_sample_image(
-                        mwl_data.get('body_part_code', 'CHEST'),
+                        body_part_code,
                         view
                     )
                 else:  # simple
@@ -303,35 +304,79 @@ class VirtualCRDevice:
         self, modality: str, body_part: str, view: str, description: str
     ) -> str:
         """Build optimized prompt for medical image generation."""
-        body_map = {
-            'CHEST': 'chest',
-            'ABD': 'abdomen',
-            'PELV': 'pelvis',
-            'EXT_UP': 'arm',
-            'EXT_LOW': 'leg',
-            'KNEE': 'knee',
-            'HAND': 'hand'
-        }
+        # Check if description contains specific body part keywords
+        description_lower = description.lower() if description else ""
         
-        body_text = body_map.get(body_part, body_part.lower())
+        # Determine body part text - check description first for specificity
+        if 'knee' in description_lower:
+            body_text = 'knee'
+        elif 'hand' in description_lower or 'wrist' in description_lower:
+            body_text = 'hand' if 'hand' in description_lower else 'wrist'
+        elif 'shoulder' in description_lower:
+            body_text = 'shoulder'
+        elif 'ankle' in description_lower or 'foot' in description_lower:
+            body_text = 'ankle' if 'ankle' in description_lower else 'foot'
+        elif 'chest' in description_lower or 'thorax' in description_lower:
+            body_text = 'chest'
+        elif 'abdomen' in description_lower or 'abdominal' in description_lower:
+            body_text = 'abdomen'
+        else:
+            # Use body_part_code mapping
+            body_map = {
+                'CHEST': 'chest',
+                'ABD': 'abdomen',
+                'PELV': 'pelvis',
+                'EXT_UP': 'arm',
+                'EXT_LOW': 'leg',  # Generic, but description should specify (knee, ankle, etc.)
+                'KNEE': 'knee',
+                'HAND': 'hand'
+            }
+            body_text = body_map.get(body_part, body_part.lower())
         
-        # Build prompt emphasizing photorealistic clinical appearance
-        prompt = f"""Photorealistic chest X-ray radiograph image from a hospital radiology department.
-Real clinical {view} view {body_text} X-ray with authentic medical imaging characteristics.
+        # Build anatomical details based on DETERMINED body_text, not original body_part code
+        # This ensures we don't mix anatomy (e.g., chest details for a knee X-ray)
+        if body_text in ('chest', 'thorax'):
+            anatomical_details = "Heart positioned on left side, lung fields with natural vascular markings, realistic rib spacing and contours. Authentic grayscale gradients from dense bone (bright white) through soft tissue to lung air spaces (dark gray)."
+        elif body_text in ('knee',):
+            anatomical_details = "Knee joint with distal femur, patella, and proximal tibia/fibula. Authentic bone structure with normal variations, realistic joint spaces, natural soft tissue shadows. Authentic grayscale gradients from dense cortical bone (bright white) through trabecular bone to soft tissue (gray)."
+        elif body_text in ('hand', 'wrist', 'shoulder', 'ankle', 'foot', 'arm', 'leg'):
+            anatomical_details = "Authentic bone structure with normal variations, realistic joint spaces, natural soft tissue shadows. Authentic grayscale gradients from dense cortical bone (bright white) through trabecular bone to soft tissue (gray)."
+        elif body_text in ('abdomen', 'pelvis'):
+            anatomical_details = "Abdominal structures with realistic soft tissue densities, bowel gas patterns, and bony pelvis. Authentic grayscale gradients from dense bone (bright white) through soft tissue (gray)."
+        else:
+            anatomical_details = "Realistic anatomical structures with natural variations. Authentic grayscale gradients from dense bone (bright white) through soft tissue (gray)."
+        
+        # Build focused prompt - emphasize ONLY the specific body part
+        # Remove any mention of other body parts to avoid confusion
+        prompt = f"""Photorealistic {body_text} X-ray radiograph image from a hospital radiology department.
+Single, focused {view} view {body_text} X-ray ONLY - no other body parts visible.
+Real clinical radiographic appearance with authentic medical imaging characteristics.
 Actual radiographic film appearance showing natural asymmetry, realistic tissue densities,
-organic bone structure with normal variations. Heart positioned on left side, lung fields
-with natural vascular markings, realistic rib spacing and contours. Authentic grayscale
-gradients from dense bone (bright white) through soft tissue to lung air spaces (dark gray).
+organic bone structure with normal variations. {anatomical_details}
 Natural imperfections in patient positioning, realistic scatter radiation patterns"""
         
         if description and description.lower() != "normal":
-            prompt += f", with visible {description}"
+            # Use description - these are detailed clinical descriptions that should be prominently featured
+            # Check if description contains specific clinical terms (fractures, pneumonia types, etc.)
+            desc_lower = description.lower()
+            if any(term in desc_lower for term in ['schatzker', 'colles', 'galeazzi', 'monteggia', 'smith', 'barton', 'fracture']):
+                # Fracture-specific: emphasize the fracture type and appearance
+                prompt += f". CRITICAL: The image must clearly show {description}. This is a specific clinical finding that must be accurately represented in the radiographic appearance."
+            elif any(term in desc_lower for term in ['pneumonia', 'lobar', 'bronchopneumonia', 'consolidation', 'air bronchogram']):
+                # Pneumonia-specific: emphasize consolidation pattern
+                prompt += f". CRITICAL: The image must clearly show {description}. The consolidation pattern, air bronchograms, and distribution must be accurately represented."
+            elif any(term in desc_lower for term in ['ulcerative colitis', 'lead pipe', 'haustral', 'thumbprinting', 'mucosal']):
+                # GI-specific: emphasize bowel pattern
+                prompt += f". CRITICAL: The image must clearly show {description}. The bowel gas pattern, haustral markings, and mucosal changes must be accurately represented."
+            else:
+                # General clinical finding
+                prompt += f". The image must show {description}."
         else:
             prompt += ", unremarkable study with no acute findings"
         
         prompt += """. Genuine medical radiology imaging quality, not illustration or diagram.
 Raw radiograph appearance as acquired from CR detector, suitable for clinical review and
-medical training purposes only. Photographic realism required."""
+medical training purposes only. Photographic realism required. Single body part only - no composite or multiple body parts."""
         
         return prompt
     
@@ -413,7 +458,7 @@ medical training purposes only. Photographic realism required."""
         ds.StudyInstanceUID = study_uid
         ds.StudyDate = datetime.now().strftime('%Y%m%d')
         ds.StudyTime = datetime.now().strftime('%H%M%S')
-        ds.AccessionNumber = mwl_data.get('accession_number', mwl_data.get('AccessionNumber', ''))
+        ds.AccessionNumber = mwl_data.get('accession_number', mwl_data.get('AccessionNumber', '')) or ''
         ds.StudyDescription = mwl_data.get('procedure_description', 'CR Study')
         
         # Series Module

@@ -76,13 +76,14 @@ class FhirClient:
         self, 
         resource: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Create a new FHIR resource.
+        """Create a new FHIR resource or process a Bundle.
         
         Args:
             resource: The FHIR resource to create (must include "resourceType")
+                     For Bundles, use type "transaction" or "batch" to process entries
         
         Returns:
-            The created FHIR resource with server-assigned ID
+            The created FHIR resource with server-assigned ID, or Bundle response
         
         Raises:
             httpx.HTTPStatusError: If the request fails
@@ -91,8 +92,20 @@ class FhirClient:
         if not resource_type:
             raise ValueError("Resource must include 'resourceType' field")
         
-        url = f"{self.base_url}/{resource_type}"
-        response = httpx.post(url, headers=self.headers, json=resource, timeout=30.0, verify=False, follow_redirects=True)
+        # Bundles (transaction, batch) are posted to base endpoint
+        if resource_type == "Bundle":
+            bundle_type = resource.get("type", "").lower()
+            if bundle_type in ("transaction", "batch"):
+                # Transaction/batch bundles go to base endpoint
+                url = self.base_url
+            else:
+                # Collection bundles can be posted as regular resources
+                url = f"{self.base_url}/Bundle"
+        else:
+            # Regular resources go to their type endpoint
+            url = f"{self.base_url}/{resource_type}"
+        
+        response = httpx.post(url, headers=self.headers, json=resource, timeout=60.0, verify=False, follow_redirects=True)
         response.raise_for_status()
         return response.json()
     

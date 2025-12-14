@@ -806,6 +806,65 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         }
     
     @mcp.tool()
+    def switch_fhir_server(server_name: str, ctx: Context = None) -> Dict[str, Any]:
+        """Switch the active FHIR server to a different configured server.
+        
+        This tool changes which FHIR server subsequent operations will connect to.
+        The server must be defined in the configuration file.
+        
+        Args:
+            server_name: The name of the FHIR server to switch to, must match a name in the configuration
+        
+        Returns:
+            Dictionary containing:
+            - success: Boolean indicating if the switch was successful
+            - message: Description of the operation result or error
+            - server_url: The base URL of the new server
+        
+        Example:
+            {
+                "success": true,
+                "message": "Switched to FHIR server: siim",
+                "server_url": "https://hackathon.siim.org/fhir"
+            }
+        
+        Raises:
+            ValueError: If the specified server name is not found in configuration
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        config = dicom_ctx.config
+        
+        # Check if server exists
+        if not config.fhir_servers:
+            raise ValueError("No FHIR servers configured. Add 'fhir_servers' section to configuration.yaml")
+        
+        if server_name not in config.fhir_servers:
+            available = list(config.fhir_servers.keys())
+            raise ValueError(f"FHIR server '{server_name}' not found. Available servers: {', '.join(available)}")
+        
+        # Update configuration
+        config.current_fhir = server_name
+        
+        # Get the new server configuration
+        fhir_config = config.fhir_servers[server_name]
+        
+        # Create a new FHIR client with the updated configuration
+        api_key = fhir_config.api_key or os.getenv("SIIM_API_KEY")
+        dicom_ctx.fhir_client = FhirClient(
+            base_url=fhir_config.base_url,
+            api_key=api_key
+        )
+        
+        logger.info(f"Switched to FHIR server: {server_name} ({fhir_config.base_url})")
+        
+        return {
+            "success": True,
+            "message": f"Switched to FHIR server: {server_name}",
+            "server_url": fhir_config.base_url,
+            "description": fhir_config.description
+        }
+    
+    @mcp.tool()
     def list_mini_ris_patients(
         mrn: Optional[str] = None,
         name_query: Optional[str] = None,
@@ -1031,10 +1090,12 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             cursor.execute("""
                 SELECT 
                     o.order_id, o.accession_number, o.modality_code,
+                    COALESCE(o.body_part_code, proc.body_part_code, 'CHEST') as body_part_code,
+                    o.image_generation_prompt, o.report_findings_description,
                     p.mrn, p.given_name, p.family_name, p.date_of_birth, p.sex,
                     CONCAT(p.family_name, '^', p.given_name) as patient_name,
                     op.procedure_description,
-                    proc.body_part_code, proc.typical_views, proc.typical_image_count
+                    proc.typical_views, proc.typical_image_count
                 FROM orders o
                 JOIN patients p ON o.patient_id = p.patient_id
                 JOIN order_procedures op ON o.order_id = op.order_id
@@ -1066,12 +1127,17 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         openai_key = os.getenv("OPENAI_API_KEY")
         virtual_cr = VirtualCRDevice(openai_api_key=openai_key)
         
+        # Use image_generation_prompt from order if available, otherwise use parameter
+        effective_image_description = order_data.get('image_generation_prompt') or image_description
+        if effective_image_description != image_description:
+            logger.info(f"Using image generation prompt from order: {effective_image_description[:50]}...")
+        
         # Generate study
         try:
             study_result = virtual_cr.create_study(
                 mwl_data=order_data,
                 image_mode=image_mode,
-                image_description=image_description
+                image_description=effective_image_description
             )
         except Exception as e:
             return {
@@ -1094,11 +1160,17 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "series_uid": study_result['series_uid'],
             "num_images": study_result['num_images'],
             "image_mode": study_result['image_mode'],
+            "image_description_used": effective_image_description,
             "images": [
                 {"instance": f['instance_number'], "view": f['view']} 
                 for f in study_result['files']
             ]
         }
+        
+        # Include info about whether order prompt was used
+        if order_data.get('image_generation_prompt'):
+            result["used_order_prompt"] = True
+            result["order_prompt_available"] = True
         
         # Send to PACS if requested
         if send_to_pacs:
@@ -1167,18 +1239,24 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         resource: Dict[str, Any],
         ctx: Context = None
     ) -> Dict[str, Any]:
-        """Create a new FHIR resource on the server.
+        """Create a new FHIR resource or process a Bundle on the server.
         
         This tool allows you to create any FHIR resource type (Patient, ImagingStudy,
-        ServiceRequest, DiagnosticReport, etc.). The resource must include a
-        "resourceType" field.
+        ServiceRequest, DiagnosticReport, etc.) or process a Bundle (transaction/batch).
+        The resource must include a "resourceType" field.
+        
+        For Bundles:
+        - Use type "transaction" for atomic processing (all succeed or all fail)
+        - Use type "batch" for independent processing (each entry processed separately)
+        - Bundle entries should have "request" elements with method (POST, PUT, etc.)
         
         Args:
             resource: The FHIR resource to create as a dictionary. Must include
                      "resourceType" field. Optionally include "id" for client-assigned IDs.
+                     For Bundles, include "type" field ("transaction" or "batch") and "entry" array.
         
         Returns:
-            The created FHIR resource with server-assigned ID and metadata
+            The created FHIR resource with server-assigned ID and metadata, or Bundle response
         
         Example:
             Create a Patient:
@@ -1188,6 +1266,31 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 "name": [{"family": "Smith", "given": ["John"]}],
                 "birthDate": "1985-03-15",
                 "gender": "male"
+            }
+            
+            Create a Transaction Bundle (multiple resources atomically):
+            {
+                "resourceType": "Bundle",
+                "type": "transaction",
+                "entry": [
+                    {
+                        "request": {"method": "POST", "url": "Patient"},
+                        "resource": {
+                            "resourceType": "Patient",
+                            "identifier": [{"system": "http://hospital.example.org/mrn", "value": "MRN001"}],
+                            "name": [{"family": "Smith", "given": ["John"]}]
+                        }
+                    },
+                    {
+                        "request": {"method": "POST", "url": "Observation"},
+                        "resource": {
+                            "resourceType": "Observation",
+                            "status": "final",
+                            "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6"}]},
+                            "valueQuantity": {"value": 120, "unit": "mmHg"}
+                        }
+                    }
+                ]
             }
         """
         dicom_ctx = ctx.request_context.lifespan_context
@@ -1304,6 +1407,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         impression: str,
         author_provider_id: Optional[int] = None,
         report_status: str = "Preliminary",
+        use_order_findings: bool = False,
         ctx: Context = None
     ) -> Dict[str, Any]:
         """Create a radiology report for a study.
@@ -1311,12 +1415,16 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         Creates a structured radiology report and saves it to the mini-RIS database.
         The report can later be converted to PDF and attached to the PACS.
         
+        If use_order_findings is True and the order has a report_findings_description,
+        it will be used as the findings text (you can still override with findings parameter).
+        
         Args:
             accession_number: The accession number of the study being reported
-            findings: The detailed findings/body of the report
+            findings: The detailed findings/body of the report (or empty to use order description)
             impression: The clinical impression/conclusion
             author_provider_id: Optional radiologist provider ID (use list_radiologists to get IDs)
             report_status: Report status - one of: Preliminary, Final, Amended, Cancelled
+            use_order_findings: If True, use report_findings_description from order if available
             
         Returns:
             Dictionary with the created report_id and confirmation
@@ -1337,20 +1445,31 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         
         imaging_study_id = study['imaging_study_id']
         
-        # Generate report number
-        report_number = f"RPT-{accession_number}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Use report_findings_description from order if requested and available
+        effective_findings = findings
+        if use_order_findings and study.get('report_findings_description'):
+            if findings and findings.strip():
+                # User provided findings, but we'll note the order description was available
+                logger.info("Using provided findings, but order has report_findings_description available")
+            else:
+                # Use the order's findings description
+                effective_findings = study['report_findings_description']
+                logger.info("Using report_findings_description from order")
+        
+        # Generate report number with MCP prefix for development data
+        report_number = f"MCP-RPT-{accession_number}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
         # Create report in database
         report_id = dicom_ctx.mini_ris_client.create_report(
             imaging_study_id=imaging_study_id,
             report_number=report_number,
-            report_text=findings,
+            report_text=effective_findings,
             impression=impression,
             author_provider_id=author_provider_id,
             report_status=report_status
         )
         
-        return {
+        result = {
             "success": True,
             "report_id": report_id,
             "report_number": report_number,
@@ -1358,6 +1477,16 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "status": report_status,
             "message": f"Report created successfully (ID: {report_id})"
         }
+        
+        # Include info about whether order findings were used
+        if use_order_findings and study.get('report_findings_description'):
+            result["used_order_findings"] = True
+            result["order_findings_available"] = True
+        elif study.get('report_findings_description'):
+            result["order_findings_available"] = True
+            result["note"] = "Order has report_findings_description available (set use_order_findings=True to use it)"
+        
+        return result
     
     @mcp.tool()
     def generate_report_pdf(

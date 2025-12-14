@@ -4,6 +4,19 @@
 -- workflows, generate HL7/FHIR messages, and produce MWL entries.
 -- It intentionally mirrors naming used by HL7 ORM/ORU and FHIR resources
 -- (ServiceRequest, ImagingStudy, DiagnosticReport, Practitioner, Patient).
+--
+-- MCP NAMING SCHEME (Development/Synthetic Data):
+-- All identifiers are prefixed with "MCP-" to clearly mark this as development data:
+--   - MRN: MCP-MRN-#### (e.g., MCP-MRN-0001)
+--   - Accession: MCP-ACC-YY-#### (e.g., MCP-ACC-25-0001) - 15 chars max for DICOM SH VR
+--   - Order: MCP-ORD-YYYY-#### (e.g., MCP-ORD-2025-0001)
+--   - Encounter: MCP-ENC-#### (e.g., MCP-ENC-5001)
+--   - Report: MCP-RPT-ACC-YYYY-#### (e.g., MCP-RPT-MCP-ACC-2025-0001-20250601120000)
+--   - NPI: MCP-NPI-#### (e.g., MCP-NPI-0001)
+--   - Patient Names: Family name includes "-MCP" suffix (e.g., "Johnson-MCP")
+--   - Physician Names: Given name prefixed with "MCP-" (e.g., "MCP-Emily")
+--   - DICOM Format: Family-MCP^Given (e.g., "Johnson-MCP^Alex")
+--   - Physician DICOM: MCP-Given^Family (e.g., "MCP-Emily^Chen")
 
 -- Ensure we are operating inside the default schema created by docker-compose
 USE orthanc_ris;
@@ -86,7 +99,7 @@ CREATE TABLE patients (
   preferred_language ENUM('en','es','fr','de','it','pt','nl','sv','fi','da','et','lv','lt','pl','cs','sk','sl','hu','ro','bg','hr','el','mt','ga') NOT NULL DEFAULT 'en',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT chk_patient_mrn CHECK (mrn REGEXP '^MRN[0-9]{4,}$'),
+  CONSTRAINT chk_patient_mrn CHECK (mrn REGEXP '^MCP-MRN-[0-9]{4,}$'),
   CONSTRAINT chk_patient_country CHECK (country_code IN ('US','AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE'))
 ) ENGINE=InnoDB;
 
@@ -138,6 +151,8 @@ CREATE TABLE orders (
   order_datetime DATETIME NOT NULL,
   scheduled_start DATETIME,
   notes TEXT,
+  image_generation_prompt TEXT COMMENT 'Prompt for AI image generation (e.g., "pneumonia in right lower lobe")',
+  report_findings_description TEXT COMMENT 'Description of expected findings for report generation',
   fhir_service_request_id VARCHAR(64),
   hl7_control_code CHAR(2) DEFAULT 'NW',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -148,7 +163,7 @@ CREATE TABLE orders (
   CONSTRAINT fk_order_performing_provider FOREIGN KEY (performing_provider_id) REFERENCES providers(provider_id),
   CONSTRAINT fk_order_modality FOREIGN KEY (modality_code) REFERENCES modalities(modality_code),
   CONSTRAINT fk_order_body_part FOREIGN KEY (body_part_code) REFERENCES body_parts(body_part_code),
-  CONSTRAINT chk_order_accession CHECK (accession_number REGEXP '^ACC-[0-9]{4}-[0-9]{4}$')
+  CONSTRAINT chk_order_accession CHECK (accession_number REGEXP '^MCP-ACC-[0-9]{2}-[0-9]{4}$')
 ) ENGINE=InnoDB;
 
 DROP TABLE IF EXISTS order_procedures;
@@ -385,35 +400,45 @@ ON DUPLICATE KEY UPDATE procedure_name = VALUES(procedure_name);
 
 INSERT INTO patients (mrn, given_name, family_name, date_of_birth, sex, phone, email, address_line, city, state, postal_code, country_code, preferred_language)
 VALUES
-  ('MRN1001', 'Alex', 'Johnson', '1984-03-12', 'M', '+1-555-0101', 'alex.johnson@example.org', '100 Main St', 'Metropolis', 'CA', '90001', 'US', 'en'),
-  ('MRN1002', 'Maria', 'Lopez', '1976-11-05', 'F', '+1-555-0102', 'maria.lopez@example.org', '250 Oak Ave', 'Metropolis', 'CA', '90002', 'US', 'es'),
-  ('MRN1003', 'Sam', 'Nguyen', '1992-07-21', 'O', '+1-555-0103', 'sam.nguyen@example.org', '42 Elm Street', 'Metropolis', 'CA', '90003', 'US', 'en')
+  ('MCP-MRN-0001', 'Alex', 'Johnson-MCP', '1984-03-12', 'M', '+1-555-0101', 'alex.johnson.mcp@dev.example.org', '100 Main St', 'Metropolis', 'CA', '90001', 'US', 'en'),
+  ('MCP-MRN-0002', 'Maria', 'Lopez-MCP', '1976-11-05', 'F', '+1-555-0102', 'maria.lopez.mcp@dev.example.org', '250 Oak Ave', 'Metropolis', 'CA', '90002', 'US', 'es'),
+  ('MCP-MRN-0003', 'Sam', 'Nguyen-MCP', '1992-07-21', 'O', '+1-555-0103', 'sam.nguyen.mcp@dev.example.org', '42 Elm Street', 'Metropolis', 'CA', '90003', 'US', 'en')
 ON DUPLICATE KEY UPDATE given_name = VALUES(given_name), family_name = VALUES(family_name);
 
 INSERT INTO providers (npi, provider_type, given_name, family_name, phone, email, department)
 VALUES
-  ('1234567890', 'Ordering', 'Emily', 'Chen', '+1-555-0201', 'echen@metrohospital.org', 'Primary Care'),
-  ('2234567890', 'Radiologist', 'Robert', 'Stein', '+1-555-0202', 'rstein@metrohospital.org', 'Radiology'),
-  ('3234567890', 'Technologist', 'Casey', 'Wells', '+1-555-0203', 'cwells@metrohospital.org', 'Imaging Services')
+  ('MCP-NPI-0001', 'Ordering', 'MCP-Emily', 'Chen', '+1-555-0201', 'mcp-echen@dev.metrohospital.org', 'Primary Care'),
+  ('MCP-NPI-0002', 'Radiologist', 'MCP-Robert', 'Stein', '+1-555-0202', 'mcp-rstein@dev.metrohospital.org', 'Radiology'),
+  ('MCP-NPI-0003', 'Technologist', 'MCP-Casey', 'Wells', '+1-555-0203', 'mcp-cwells@dev.metrohospital.org', 'Imaging Services')
 ON DUPLICATE KEY UPDATE given_name = VALUES(given_name), family_name = VALUES(family_name);
 
 INSERT INTO encounters (patient_id, encounter_number, encounter_type_code, start_time, referring_provider_id, location, status)
 VALUES
-  (1, 'ENC-5001', 'OP', '2025-06-01 09:00:00', 1, 'Radiology Check-In', 'InProgress'),
-  (2, 'ENC-5002', 'OP', '2025-06-02 08:30:00', 1, 'Radiology Check-In', 'Planned')
+  (1, 'MCP-ENC-5001', 'OP', '2025-06-01 09:00:00', 1, 'MCP Radiology Check-In', 'InProgress'),
+  (2, 'MCP-ENC-5002', 'OP', '2025-06-02 08:30:00', 1, 'MCP Radiology Check-In', 'Planned')
 ON DUPLICATE KEY UPDATE status = VALUES(status);
 
 INSERT INTO orders (
   order_number, accession_number, patient_id, encounter_id, ordering_provider_id,
   performing_provider_id, modality_code, body_part_code, reason_code, reason_description,
-  priority, status, order_datetime, scheduled_start, notes, fhir_service_request_id, hl7_control_code
+  priority, status, order_datetime, scheduled_start, notes, image_generation_prompt, report_findings_description,
+  fhir_service_request_id, hl7_control_code
 ) VALUES
-  ('ORD-2025-0001', 'ACC-2025-0001', 1, 1, 1, 3, 'CR', 'CHEST', 'R07.9', 'Chest pain evaluation',
-   'URGENT', 'Scheduled', '2025-06-01 08:45:00', '2025-06-01 09:15:00', 'Possible pneumonia', NULL, 'NW'),
-  ('ORD-2025-0002', 'ACC-2025-0002', 2, 2, 1, 3, 'CR', 'ABD', 'R10.9', 'Abdominal pain',
-   'ROUTINE', 'Requested', '2025-06-02 08:15:00', '2025-06-02 10:00:00', 'Rule out obstruction', NULL, 'NW'),
-  ('ORD-2025-0003', 'ACC-2025-0003', 3, NULL, 1, 3, 'CR', 'EXT_LOW', 'M25.561', 'Knee pain',
-   'ROUTINE', 'Requested', '2025-06-03 10:00:00', '2025-06-03 14:00:00', 'Evaluate for fracture', NULL, 'NW')
+  ('MCP-ORD-2025-0001', 'MCP-ACC-25-0001', 1, 1, 1, 3, 'CR', 'CHEST', 'R07.9', 'Chest pain evaluation (MCP Dev Data)',
+   'URGENT', 'Scheduled', '2025-06-01 08:45:00', '2025-06-01 09:15:00', 'Possible lobar pneumonia - MCP Synthetic Data',
+   'Chest X-ray PA and lateral views showing right lower lobe lobar pneumonia with air bronchograms. Dense consolidation in the right lower lobe with preserved air-filled bronchi visible within the opacity (air bronchogram sign). Heart size normal. No pleural effusion. Left lung clear.',
+   'The heart is normal in size. There is dense consolidation in the right lower lobe consistent with lobar pneumonia, with visible air bronchograms indicating alveolar filling. No pleural effusion or pneumothorax. The mediastinum is unremarkable. Left lung is clear.',
+   NULL, 'NW'),
+  ('MCP-ORD-2025-0002', 'MCP-ACC-25-0002', 2, 2, 1, 3, 'CR', 'ABD', 'R10.9', 'Abdominal pain (MCP Dev Data)',
+   'ROUTINE', 'Requested', '2025-06-02 08:15:00', '2025-06-02 10:00:00', 'Ulcerative colitis pattern - MCP Synthetic Data',
+   'Abdominal X-ray AP supine view showing features consistent with ulcerative colitis: loss of haustral markings in the colon, lead pipe appearance of the descending colon, mucosal irregularity, and thumbprinting pattern. No evidence of toxic megacolon. Small bowel gas pattern is normal.',
+   'The abdomen shows features consistent with chronic ulcerative colitis: loss of haustral markings throughout the colon, particularly in the descending colon which has a lead pipe appearance. There is mucosal irregularity and thumbprinting pattern. No evidence of bowel obstruction, free intraperitoneal air, or toxic megacolon. Small bowel gas pattern is normal.',
+   NULL, 'NW'),
+  ('MCP-ORD-2025-0003', 'MCP-ACC-25-0003', 3, NULL, 1, 3, 'CR', 'EXT_LOW', 'M25.561', 'Knee pain (MCP Dev Data)',
+   'ROUTINE', 'Requested', '2025-06-03 10:00:00', '2025-06-03 14:00:00', 'Tibial plateau fracture - MCP Synthetic Data',
+   'Knee X-ray AP and lateral views showing a Schatzker type II tibial plateau fracture. There is a non-displaced vertical split fracture of the lateral tibial plateau with minimal depression. The fracture line extends from the lateral cortex into the articular surface. Joint spaces are preserved. No joint effusion. The fibula is intact. Patella is normal.',
+   'There is a Schatzker type II tibial plateau fracture involving the lateral plateau. The fracture consists of a vertical split with minimal depression of the lateral articular surface. The fracture line extends from the lateral cortex into the joint. Joint spaces are preserved. No joint effusion. The fibula and patella are intact.',
+   NULL, 'NW')
 ON DUPLICATE KEY UPDATE status = VALUES(status);
 
 INSERT INTO order_procedures (order_id, procedure_code, procedure_description, laterality)
@@ -433,13 +458,13 @@ INSERT INTO mwl_tasks (
 ) VALUES
   (1, 'ORTHANC', 'CR Room 1', '2025-06-01 09:15:00', '2025-06-01 09:30:00', 3, 'Completed',
    JSON_OBJECT(
-     'PatientID', 'MRN1001',
-     'PatientName', 'Johnson^Alex',
+     'PatientID', 'MCP-MRN-0001',
+     'PatientName', 'Johnson-MCP^Alex',
      'PatientBirthDate', '19840312',
      'PatientSex', 'M',
-     'AccessionNumber', 'ACC-2025-0001',
-     'RequestedProcedureDescription', 'Chest X-Ray 2 Views',
-     'RequestedProcedureID', 'ORD-2025-0001',
+     'AccessionNumber', 'MCP-ACC-25-0001',
+     'RequestedProcedureDescription', 'Chest X-Ray 2 Views (MCP Dev)',
+     'RequestedProcedureID', 'MCP-ORD-2025-0001',
      'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.59676346561651051188898732525991691632',
      'ScheduledProcedureStepSequence', JSON_ARRAY(
        JSON_OBJECT(
@@ -448,20 +473,20 @@ INSERT INTO mwl_tasks (
          'ScheduledProcedureStepStartDate', '20250601',
          'ScheduledProcedureStepStartTime', '091500',
          'ScheduledProcedureStepDescription', 'Chest X-Ray 2 Views',
-         'ScheduledProcedureStepID', 'SPS1',
-         'ScheduledPerformingPhysicianName', 'Wells^Casey'
+         'ScheduledProcedureStepID', 'MCP-SPS1',
+         'ScheduledPerformingPhysicianName', 'MCP-Casey^Wells'
        )
      )
    )),
   (2, 'ORTHANC', 'CR Room 1', '2025-06-02 10:00:00', '2025-06-02 10:10:00', 3, 'Completed',
    JSON_OBJECT(
-     'PatientID', 'MRN1002',
-     'PatientName', 'Lopez^Maria',
+     'PatientID', 'MCP-MRN-0002',
+     'PatientName', 'Lopez-MCP^Maria',
      'PatientBirthDate', '19761105',
      'PatientSex', 'F',
-     'AccessionNumber', 'ACC-2025-0002',
-     'RequestedProcedureDescription', 'Abdomen X-Ray 1 View',
-     'RequestedProcedureID', 'ORD-2025-0002',
+     'AccessionNumber', 'MCP-ACC-25-0002',
+     'RequestedProcedureDescription', 'Abdomen X-Ray 1 View (MCP Dev)',
+     'RequestedProcedureID', 'MCP-ORD-2025-0002',
      'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.12345678901234567890123456789012',
      'ScheduledProcedureStepSequence', JSON_ARRAY(
        JSON_OBJECT(
@@ -470,20 +495,20 @@ INSERT INTO mwl_tasks (
          'ScheduledProcedureStepStartDate', '20250602',
          'ScheduledProcedureStepStartTime', '100000',
          'ScheduledProcedureStepDescription', 'Abdomen X-Ray 1 View',
-         'ScheduledProcedureStepID', 'SPS2',
-         'ScheduledPerformingPhysicianName', 'Wells^Casey'
+         'ScheduledProcedureStepID', 'MCP-SPS2',
+         'ScheduledPerformingPhysicianName', 'MCP-Casey^Wells'
        )
      )
    )),
   (3, 'ORTHANC', 'CR Room 2', '2025-06-03 14:00:00', '2025-06-03 14:15:00', 3, 'Scheduled',
    JSON_OBJECT(
-     'PatientID', 'MRN1003',
-     'PatientName', 'Nguyen^Sam',
+     'PatientID', 'MCP-MRN-0003',
+     'PatientName', 'Nguyen-MCP^Sam',
      'PatientBirthDate', '19920721',
      'PatientSex', 'O',
-     'AccessionNumber', 'ACC-2025-0003',
-     'RequestedProcedureDescription', 'Knee X-Ray 2 Views',
-     'RequestedProcedureID', 'ORD-2025-0003',
+     'AccessionNumber', 'MCP-ACC-25-0003',
+     'RequestedProcedureDescription', 'Knee X-Ray 2 Views (MCP Dev)',
+     'RequestedProcedureID', 'MCP-ORD-2025-0003',
      'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.98765432109876543210987654321098',
      'ScheduledProcedureStepSequence', JSON_ARRAY(
        JSON_OBJECT(
@@ -492,8 +517,8 @@ INSERT INTO mwl_tasks (
          'ScheduledProcedureStepStartDate', '20250603',
          'ScheduledProcedureStepStartTime', '140000',
          'ScheduledProcedureStepDescription', 'Knee X-Ray 2 Views',
-         'ScheduledProcedureStepID', 'SPS3',
-         'ScheduledPerformingPhysicianName', 'Wells^Casey'
+         'ScheduledProcedureStepID', 'MCP-SPS3',
+         'ScheduledPerformingPhysicianName', 'MCP-Casey^Wells'
        )
      )
    ))
