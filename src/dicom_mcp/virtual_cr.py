@@ -18,12 +18,19 @@ from typing import Dict, Any, Optional, Tuple
 
 import numpy as np
 import pydicom
-from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import generate_uid, ExplicitVRLittleEndian
 from pynetdicom import AE, StoragePresentationContexts
 from pynetdicom.sop_class import ComputedRadiographyImageStorage
+
+# Optional OpenAI import - only needed for AI image generation
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    OpenAI = None  # type: ignore
 
 logger = logging.getLogger("dicom_mcp.virtual_cr")
 
@@ -33,8 +40,8 @@ class VirtualCRDevice:
     
     def __init__(
         self,
-        manufacturer: str = "Virtual Devices Inc.",
-        model: str = "VirtualCR-2000",
+        manufacturer: str = "Virtual Device",
+        model: str = "VirtualCR-1024",
         station_name: str = "CR-VIRTUAL-01",
         openai_api_key: Optional[str] = None
     ):
@@ -63,7 +70,13 @@ class VirtualCRDevice:
         """
         # Determine image mode
         if image_mode == "auto":
-            image_mode = "ai" if self.openai_api_key else "simple"
+            image_mode = "ai" if (OPENAI_AVAILABLE and self.openai_api_key) else "simple"
+        elif image_mode == "ai" and not OPENAI_AVAILABLE:
+            logger.warning("OpenAI package not available, falling back to simple mode")
+            image_mode = "simple"
+        elif image_mode == "ai" and not self.openai_api_key:
+            logger.warning("OpenAI API key not configured, falling back to simple mode")
+            image_mode = "simple"
         
         # Extract MWL data
         procedure_desc = mwl_data.get('procedure_description', 'CR Study')
@@ -243,6 +256,10 @@ class VirtualCRDevice:
         self, modality: str, body_part: str, view: str, description: str
     ) -> Image.Image:
         """Generate realistic CR image using OpenAI image models."""
+        if not OPENAI_AVAILABLE:
+            raise ImportError(
+                "OpenAI package is not installed. Install it with: pip install openai"
+            )
         if not self.openai_api_key:
             raise ValueError("OpenAI API key required for AI image generation")
         
@@ -259,9 +276,9 @@ class VirtualCRDevice:
         
         # Generate with gpt-image-1
         try:
-            logger.info("Generating with gpt-image-1...")
+            logger.info("Generating with gpt-image-1.5")
             response = client.images.generate(
-                model="gpt-image-1",
+                model="gpt-image-1.5",
                 prompt=prompt,
                 size="1024x1024",  # Can use "512x512" for faster generation
                 n=1
@@ -495,7 +512,7 @@ medical training purposes only. Photographic realism required. Single body part 
         ds.PixelData = pixel_array_16.tobytes()
         
         # Save
-        ds.save_as(temp_file.name, write_like_original=False)
+        ds.save_as(temp_file.name, enforce_file_format=False)
         logger.info(f"Created DICOM file: {temp_file.name}")
         
         return temp_file.name

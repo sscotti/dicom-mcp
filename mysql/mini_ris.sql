@@ -150,6 +150,7 @@ CREATE TABLE orders (
   status ENUM('Requested','Scheduled','InProgress','Completed','Cancelled') NOT NULL DEFAULT 'Requested',
   order_datetime DATETIME NOT NULL,
   scheduled_start DATETIME,
+  scheduled_end DATETIME,
   notes TEXT,
   image_generation_prompt TEXT COMMENT 'Prompt for AI image generation (e.g., "pneumonia in right lower lobe")',
   report_findings_description TEXT COMMENT 'Description of expected findings for report generation',
@@ -452,77 +453,8 @@ ON DUPLICATE KEY UPDATE procedure_description = VALUES(procedure_description);
 -- 1. create_synthetic_cr_study() creates imaging_studies records when studies are sent to PACS
 -- 2. create_radiology_report() creates reports after studies are available
 
-INSERT INTO mwl_tasks (
-  order_id, scheduled_station_aet, scheduled_station_name, scheduled_start,
-  scheduled_end, scheduled_performing_provider_id, status, mwl_payload
-) VALUES
-  (1, 'ORTHANC', 'CR Room 1', '2025-06-01 09:15:00', '2025-06-01 09:30:00', 3, 'Completed',
-   JSON_OBJECT(
-     'PatientID', 'MCP-MRN-0001',
-     'PatientName', 'Johnson-MCP^Alex',
-     'PatientBirthDate', '19840312',
-     'PatientSex', 'M',
-     'AccessionNumber', 'MCP-ACC-25-0001',
-     'RequestedProcedureDescription', 'Chest X-Ray 2 Views (MCP Dev)',
-     'RequestedProcedureID', 'MCP-ORD-2025-0001',
-     'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.59676346561651051188898732525991691632',
-     'ScheduledProcedureStepSequence', JSON_ARRAY(
-       JSON_OBJECT(
-         'Modality', 'CR',
-         'ScheduledStationAETitle', 'ORTHANC',
-         'ScheduledProcedureStepStartDate', '20250601',
-         'ScheduledProcedureStepStartTime', '091500',
-         'ScheduledProcedureStepDescription', 'Chest X-Ray 2 Views',
-         'ScheduledProcedureStepID', 'MCP-SPS1',
-         'ScheduledPerformingPhysicianName', 'MCP-Casey^Wells'
-       )
-     )
-   )),
-  (2, 'ORTHANC', 'CR Room 1', '2025-06-02 10:00:00', '2025-06-02 10:10:00', 3, 'Completed',
-   JSON_OBJECT(
-     'PatientID', 'MCP-MRN-0002',
-     'PatientName', 'Lopez-MCP^Maria',
-     'PatientBirthDate', '19761105',
-     'PatientSex', 'F',
-     'AccessionNumber', 'MCP-ACC-25-0002',
-     'RequestedProcedureDescription', 'Abdomen X-Ray 1 View (MCP Dev)',
-     'RequestedProcedureID', 'MCP-ORD-2025-0002',
-     'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.12345678901234567890123456789012',
-     'ScheduledProcedureStepSequence', JSON_ARRAY(
-       JSON_OBJECT(
-         'Modality', 'CR',
-         'ScheduledStationAETitle', 'ORTHANC',
-         'ScheduledProcedureStepStartDate', '20250602',
-         'ScheduledProcedureStepStartTime', '100000',
-         'ScheduledProcedureStepDescription', 'Abdomen X-Ray 1 View',
-         'ScheduledProcedureStepID', 'MCP-SPS2',
-         'ScheduledPerformingPhysicianName', 'MCP-Casey^Wells'
-       )
-     )
-   )),
-  (3, 'ORTHANC', 'CR Room 2', '2025-06-03 14:00:00', '2025-06-03 14:15:00', 3, 'Scheduled',
-   JSON_OBJECT(
-     'PatientID', 'MCP-MRN-0003',
-     'PatientName', 'Nguyen-MCP^Sam',
-     'PatientBirthDate', '19920721',
-     'PatientSex', 'O',
-     'AccessionNumber', 'MCP-ACC-25-0003',
-     'RequestedProcedureDescription', 'Knee X-Ray 2 Views (MCP Dev)',
-     'RequestedProcedureID', 'MCP-ORD-2025-0003',
-     'StudyInstanceUID', '1.2.826.0.1.3680043.8.498.98765432109876543210987654321098',
-     'ScheduledProcedureStepSequence', JSON_ARRAY(
-       JSON_OBJECT(
-         'Modality', 'CR',
-         'ScheduledStationAETitle', 'ORTHANC',
-         'ScheduledProcedureStepStartDate', '20250603',
-         'ScheduledProcedureStepStartTime', '140000',
-         'ScheduledProcedureStepDescription', 'Knee X-Ray 2 Views',
-         'ScheduledProcedureStepID', 'MCP-SPS3',
-         'ScheduledPerformingPhysicianName', 'MCP-Casey^Wells'
-       )
-     )
-   ))
-ON DUPLICATE KEY UPDATE status = VALUES(status);
+-- MWL tasks are now created dynamically when create_mwl_from_order() is called
+-- This provides a proper audit trail linking orders to MWL entries
 
 -- -----------------------------------------------------------------------------
 -- End of mini-RIS schema

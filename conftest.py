@@ -22,4 +22,12 @@ def pytest_configure(config):
     if "tests" in sys.modules:
         mod = sys.modules["tests"]
         print("debug: configure tests module ->", getattr(mod, "__file__", None), getattr(mod, "__path__", None))
+    
+    # Suppress urllib3 InsecureRequestWarning for tests (we use self-signed certs)
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except ImportError:
+        pass
+    
 

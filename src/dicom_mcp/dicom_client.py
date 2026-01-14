@@ -143,10 +143,10 @@ class DicomClient:
             query_model: DICOM query model (Patient/StudyRoot)
         
         Returns:
-            List of dictionaries containing query results
+            List of dictionaries containing query results (empty list if no matches)
         
         Raises:
-            Exception: If association fails
+            Exception: If association fails or query execution fails
         """
         # Associate with the DICOM node (TLS-aware)
         assoc = self._associate()
@@ -533,7 +533,7 @@ class DicomClient:
         """Retrieve a DICOM instance with encapsulated PDF and extract its text content.
         
         This function retrieves a DICOM instance that contains an encapsulated PDF document
-        using C-GET and extracts the PDF content using PyPDF2 to parse the text content.
+        using C-GET and extracts the PDF content using pypdf to parse the text content.
         
         Args:
             study_instance_uid: Study Instance UID
@@ -586,7 +586,7 @@ class DicomClient:
             
             # Save the dataset to file
             file_path = os.path.join(temp_dir, f"{sop_instance}.dcm")
-            ds.save_as(file_path, write_like_original=False)
+            ds.save_as(file_path, enforce_file_format=False)
             received_files.append(file_path)
             
             return 0x0000  # Success
@@ -652,11 +652,17 @@ class DicomClient:
                 with open(pdf_path, 'wb') as pdf_file:
                     pdf_file.write(pdf_data)
                 
-                import PyPDF2
+                # Try pypdf first (newer), fall back to PyPDF2 for compatibility
+                try:
+                    import pypdf
+                    pdf_lib = pypdf
+                except ImportError:
+                    import PyPDF2
+                    pdf_lib = PyPDF2
                 
                 # Extract text from the PDF
                 with open(pdf_path, 'rb') as pdf_file:
-                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    pdf_reader = pdf_lib.PdfReader(pdf_file)
                     text_parts = []
                     
                     # Extract text from each page

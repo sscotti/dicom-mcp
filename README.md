@@ -2,11 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP Python SDK](https://img.shields.io/badge/MCP-Python%20SDK-blue)](https://github.com/modelcontextprotocol/python-sdk)
+[![FastMCP](https://img.shields.io/badge/FastMCP-2.0-blue)](https://github.com/jlowin/fastmcp)
 [![MCP JAM](https://img.shields.io/badge/MCP-JAM-orange)](https://www.mcpjam.com)
 
-Originally cloned from <https://github.com/ChristianHinge/dicom-mcp>; now extended and maintained separately (No fork)
-
-This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration.  Note that if you are using the Cursor IDE, or others, you can configured the IDE to also access the server in some cases, in ˜/.cursor/mcp.json, etc.  <https://cursor.com/docs/context/mcp#what-is-mcp>
+This version uses [MCP Jam](https://www.mcpjam.com) exclusively for development, testing, and LLM integration. Note that if you are using the Cursor IDE, or others, you can configure the IDE to also access the server in some cases, in `~/.cursor/mcp.json`, etc. See <https://cursor.com/docs/context/mcp#what-is-mcp> for details.
 
 Enables AI assistants to query, read, and move data on PACS using the standard Model Context Protocol (MCP), with Orthanc as the reference implementation.  You can use your own APIKEY (e.g. for ChatGPT) and run it locally for development using ChatGPT as the LLM.  Also integrated with FHIR and a mini-RIS DB.
 
@@ -14,14 +13,14 @@ Enables AI assistants to query, read, and move data on PACS using the standard M
 
 `dicom-mcp` provides tools to:
 
-* **🔍 Query Orthanc**: Search for patients, studies, series, and instances using various criteria.
-* **📄 Read DICOM Reports (PDF)**: Retrieve DICOM instances containing encapsulated PDFs (e.g., clinical reports) and extract the text content.
-* **📄 Create RIS and DICOM Reports (PDF)**:: Create sample reports in PDF format.
+* **🔍 Query DICOM**: Search for patients, studies, series, and instances using various criteria
+* **📄 Read DICOM Reports (PDF)**: Retrieve DICOM instances containing encapsulated PDFs (e.g., clinical reports) and extract the text content
+* **📄 Create Radiology Reports**: Generate radiology reports in PDF format and attach to PACS
 * **➡️ Send DICOM Images**: Send series or studies to other DICOM destinations, e.g. AI endpoints for image segmentation, classification, etc.
-* **⚙️ Utilities**: Manage connections and understand query options.
-* **⚙️ FHIR methods**:
-* **⚙️ Mini- RIS**:
-* **⚙️ MWL server**:
+* **⚙️ FHIR Integration**: Query and manage FHIR resources (Patient, ImagingStudy, ServiceRequest, etc.)
+* **⚙️ Mini-RIS**: Manage radiology orders, worklists, and reporting workflows
+* **⚙️ MWL/MPPS**: Modality Worklist and Modality Performed Procedure Step services
+* **⚙️ Utilities**: Manage connections, switch servers, and understand query options
 
 ## 🚀 Quick Start
 
@@ -44,7 +43,7 @@ pip install -e ".[dev]"
 
 ### ⚙️ Configuration
 
-`dicom-mcp` requires a YAML configuration file (`configuration.yaml` or similar) defining DICOM nodes and calling AE titles. Adapt the configuration or keep as is for compatibility with the sample ORTHANC  Server.
+`dicom-mcp` requires a YAML configuration file (`configuration.yaml` or similar) defining DICOM nodes and calling AE titles. Adapt the configuration or keep as is for compatibility with the sample Orthanc server.
 
 ```yaml
 # DICOM nodes configuration
@@ -112,11 +111,13 @@ UI at [https://localhost:8042](https://localhost:8042) and [https://localhost:80
 
 HAPI FHIR will be available at [http://localhost:8080/fhir](http://localhost:8080/fhir)
 
-See [FHIR Servers Guide](tests/FHIR_SERVERS.md) for detailed configuration options including Firely test server and SIIM integration.
+See [FHIR Servers Guide](FHIR_SERVERS.md) for detailed configuration options including Firely test server and SIIM integration.
 
-### 🔌 Using with MCP Jam
+### 🔌 Using with MCP Jam (Recommended)
 
-**MCP Jam** is the recommended tool for testing and exploring your DICOM MCP server. It offers an interface with **Guest Mode** for immediate testing without any setup.  Although, if can also use something like the Cursor IDE after configured.
+**MCP Jam** is an alternative tool for testing and exploring your DICOM MCP server. It offers a web interface with **Guest Mode** for immediate testing without any setup. For a self-contained solution, use the Custom Web UI above!
+
+> **Note**: MCP Jam Guest Mode may have limitations on certain features like the Resources panel. Resources are still fully accessible via the `list_saved_resources` and `get_saved_resource` tools, which work in Guest Mode. For full Resources panel support, you may need to use an account.
 
 **Start MCP Jam:**
 
@@ -127,8 +128,10 @@ cd /path/to/dicom-mcp
 # Activate your virtual environment
 source venv/bin/activate
 
-# Start MCP Jam
-npx -y @mcpjam/inspector@latest or npx -y @mcpjam/inspector@beta
+# Start MCP Jam (use latest or beta)
+npx -y @mcpjam/inspector@latest
+# or
+npx -y @mcpjam/inspector@beta
 ```
 
 **Setup Server in MCP Jam:**
@@ -164,11 +167,37 @@ npx -y @mcpjam/inspector@latest or npx -y @mcpjam/inspector@beta
    * **Ollama** - Auto-detects local models (no API key needed)
 3. Go to the **Playground** tab to start chatting with your DICOM server
 
+**Using Your OpenAI API Key in Cursor IDE:**
+
+> **Note**: For MCP server development and testing, **MCP Jam is recommended**. Cursor is better for general code development with MCP tools available in context.
+
+If you want to use Cursor IDE with ChatGPT for coding tasks:
+
+1. **Get your API key from `.env`** (if stored there):
+
+   ```bash
+   grep OPENAI_API_KEY .env
+   ```
+
+2. **Configure in Cursor**:
+   * Open Cursor Settings (Cmd+Shift+J / Ctrl+Shift+J)
+   * Navigate to **Models** section
+   * Paste your OpenAI API key and verify
+   * Select your preferred GPT model (GPT-4, GPT-4 Turbo, etc.)
+
+> **Note**: Cursor requires the API key to be entered in its settings UI - it doesn't automatically read from `.env` files. Copy the value from your `.env` file and paste it into Cursor's settings.
+
+This gives you ChatGPT-powered AI in Cursor with persistent system prompts and full codebase integration. See [CURSOR_SETUP.md](CURSOR_SETUP.md) for complete setup instructions.
+
 **System Prompt:**
 
-For better LLM interactions, you can configure a system prompt in MCP Jam's Playground tab. A template is available in `system_prompt.txt` - copy it into the system prompt field when starting a new session.
+For better LLM interactions, you can configure a system prompt:
 
-> **Note**: MCP Jam Guest Mode may not persist system prompts between sessions. Keep `system_prompt.txt` handy to copy-paste when needed.
+* **In MCP Jam**: Copy the content from `system_prompt.txt` into the system prompt field in the Playground tab when starting a new session.
+* **In Cursor IDE**: Set the system prompt in Cursor's settings (persists between sessions) - see [CURSOR_SETUP.md](CURSOR_SETUP.md) for details.
+* **Via Tool**: Use the `get_system_prompt` tool in either interface to retrieve the prompt text automatically.
+
+> **Note**: MCP Jam Guest Mode may not persist system prompts between sessions. Cursor IDE settings persist. Keep `system_prompt.txt` handy or use the `get_system_prompt` tool for quick access.
 
 **MCP Jam Features:**
 
@@ -176,14 +205,19 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 * ✅ **Beautiful UI**: Modern interface with AI provider logos
 * ✅ **Easy Setup**: Simple server configuration with clear forms
 * ✅ **Real-time Testing**: Interactive tool execution with immediate results
-* ✅ **Full Functionality**: Access to all 11 DICOM tools
+* ✅ **Full Functionality**: Access to all DICOM, FHIR, RIS, and reporting tools
 * ✅ **LLM Playground**: Test your DICOM server with various LLMs
 * ✅ **Community Driven**: Active development with regular updates
+
+**Note on Resources**: Resources are registered with FastMCP and accessible via:
+
+* **Tools** (works in Guest Mode): Use `list_saved_resources` and `get_saved_resource` tools to access resources
+* **Resources Panel** (may require account): Native MCP resources protocol - visible in Resources tab if supported by your MCP Jam mode
 
 **MCP Jam Tabs:**
 
 * **Servers Tab**: Manage and connect to your DICOM MCP server
-* **Tools Tab**: Browse and test all 11 DICOM tools interactively
+* **Tools Tab**: Browse and test all available tools interactively
 * **Playground Tab**: Chat with your DICOM server using configured LLMs
 * **Settings Tab**: Configure API keys and LLM providers
 
@@ -211,7 +245,7 @@ For better LLM interactions, you can configure a system prompt in MCP Jam's Play
 * `fhir_create_resource` - Create new FHIR resources (Patient, ImagingStudy, ServiceRequest, etc.)
 * `fhir_update_resource` - Update existing FHIR resources
 
-See FHIR_SERVERS.md for configuration details.
+See [FHIR_SERVERS.md](FHIR_SERVERS.md) for configuration details.
 
 **Mini-RIS Tools (when MySQL is configured):**
 
@@ -242,10 +276,11 @@ The `mini_ris.sql` schema provides a complete radiology information system with:
 **MCP Naming Scheme:**
 
 All data in the mini-RIS uses a consistent "MCP-" prefix/suffix naming scheme to clearly mark it as **development/synthetic data**:
-- MRNs: `MCP-MRN-0001`
-- Accession Numbers: `MCP-ACC-2025-0001`
-- Patient Names: `Johnson-MCP^Alex` (DICOM format)
-- Physician Names: `MCP-Emily^Chen` (DICOM format)
+
+* MRNs: `MCP-MRN-0001`
+* Accession Numbers: `MCP-ACC-2025-0001`
+* Patient Names: `Johnson-MCP^Alex` (DICOM format)
+* Physician Names: `MCP-Emily^Chen` (DICOM format)
 
 See [MCP_NAMING_SCHEME.md](MCP_NAMING_SCHEME.md) for complete details.
 
@@ -430,9 +465,10 @@ Orders can now include prompts for both image generation and report creation, cr
 2. **Report Findings Description** (`report_findings_description`): Describes expected findings for reports
 
 This enables consistent workflows where:
-- Images are generated based on the order's `image_generation_prompt`
-- Reports can use the order's `report_findings_description` as a starting point
-- The entire workflow (Order → Images → Report) is internally consistent
+
+* Images are generated based on the order's `image_generation_prompt`
+* Reports can use the order's `report_findings_description` as a starting point
+* The entire workflow (Order → Images → Report) is internally consistent
 
 ```python
 # Example: Order with prompts
@@ -456,10 +492,11 @@ create_radiology_report(
 ```
 
 **Benefits:**
-- **Consistency**: Images and reports match the original order intent
-- **Automation**: Prompts stored in orders enable fully automated workflows
-- **Testing**: Easy to test how well AI-generated images match expected findings
-- **Traceability**: Complete audit trail from order → images → report
+
+* **Consistency**: Images and reports match the original order intent
+* **Automation**: Prompts stored in orders enable fully automated workflows
+* **Testing**: Easy to test how well AI-generated images match expected findings
+* **Traceability**: Complete audit trail from order → images → report
 
 This completes the full RIS/PACS workflow:
 
@@ -645,7 +682,59 @@ The MCP server enables end-to-end radiology workflows combining FHIR and DICOM:
 * ✅ **Debug logging** - View detailed server notifications and errors
 * ✅ **Tool browser** - Easily discover and test all available tools
 
+### 🎨 Custom Web UI (Self-Contained, experimental !)
+
+**Your own custom web interface** - All in this repo, no external dependencies!
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Start the custom web UI, experimental !!
+python start_web_ui.py
+
+# Or directly with uvicorn
+uvicorn dicom_mcp.web_ui:app --host 127.0.0.1 --port 8080
+```
+
+The web UI will be available at **<http://127.0.0.1:8080>**
+
+**Features:**
+
+* ✅ **LLM-Powered Chat** - Intelligent chat with OpenAI integration for natural language queries
+* ✅ **Tool Browser** - Browse and explore all 28 available DICOM/FHIR/RIS tools
+* ✅ **Prompt Management** - Edit and save system prompts optimized for medical imaging
+* ✅ **Tool Execution** - Execute tools directly from chat or UI
+* ✅ **Medical Imaging Focus** - Customized for DICOM and FHIR workflows
+* ✅ **Self-Contained** - Everything in your repo, no external services needed
+* ✅ **Dark Theme** - Beautiful, modern dark UI
+* ✅ **Saved Resources** - Curated reference files (e.g., Orthanc OpenAPI) live in `resources/manifest.yaml`, accessible via the Resources panel or new `list_saved_resources` / `get_saved_resource` MCP tools.
+
+**LLM Integration:**
+
+Enable OpenAI-powered chat by setting your API key:
+
+```bash
+export OPENAI_API_KEY="your-api-key-here"
+```
+
+The LLM will:
+
+* Understand natural language queries about medical imaging
+* Automatically select and execute appropriate DICOM/FHIR tools
+* Format results in a clinical, readable format
+* Use the medical imaging system prompt for context-aware responses
+
+**Example Queries:**
+
+* "List all available DICOM nodes"
+* "Find patients with last name Smith"
+* "Show me studies from last week"
+* "Verify connection to PACS"
+* "What tools are available for FHIR?"
+
 ## 🙏 Acknowledgments
 
-* Built using [pynetdicom](https://github.com/pydicom/pynetdicom)
-* Uses [PyPDF2](https://pypi.org/project/PyPDF2/) for PDF text extraction
+* Built using [FastMCP](https://github.com/jlowin/fastmcp) - The fast, Pythonic way to build MCP servers
+* Built using [pynetdicom](https://github.com/pydicom/pynetdicom) for DICOM network communication
+* Uses [pypdf](https://pypi.org/project/pypdf/) for PDF text extraction

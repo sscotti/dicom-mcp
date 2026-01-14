@@ -245,6 +245,49 @@ def test_query_patients(dicom_client):
     assert patient_found, "Test patient not found"
 
 
+@pytest.fixture
+def test_study_uid(dicom_client):
+    """Fixture to get the test study UID."""
+    result = dicom_client.query_study(patient_id="TEST123")
+    
+    assert result is not None
+    assert isinstance(result, list)
+    assert len(result) > 0, "No studies found"
+    
+    # Find the test study
+    for study in result:
+        if study.get("StudyID") == "TEST01":
+            study_uid = study.get("StudyInstanceUID")
+            assert study_uid is not None, "StudyInstanceUID not found"
+            return study_uid
+    
+    pytest.fail("Test study not found")
+
+
+@pytest.fixture
+def test_series_uid(dicom_client, test_study_uid):
+    """Fixture to get the test series UID."""
+    result = dicom_client.query_series(study_instance_uid=test_study_uid)
+    
+    assert result is not None
+    assert isinstance(result, list)
+    assert len(result) > 0, "No series found"
+    
+    # Find the test series
+    for series in result:
+        series_number = series.get("SeriesNumber")
+        if series_number is None:
+            continue
+
+        # SeriesNumber may be returned as a string depending on the server
+        if str(series_number).strip() == "1":
+            series_uid = series.get("SeriesInstanceUID")
+            assert series_uid is not None, "SeriesInstanceUID not found"
+            return series_uid
+    
+    pytest.fail("Test series not found")
+
+
 def test_query_studies(dicom_client):
     """Test query_studies using the DICOM client directly"""
     result = dicom_client.query_study(patient_id="TEST123")
@@ -255,23 +298,17 @@ def test_query_studies(dicom_client):
     
     # Verify the test study
     study_found = False
-    study_uid = None
-    
     for study in result:
         if study.get("StudyID") == "TEST01":
             study_found = True
-            study_uid = study.get("StudyInstanceUID")
             break
     
     assert study_found, "Test study not found"
-    return study_uid
 
 
-def test_query_series(dicom_client):
+def test_query_series(dicom_client, test_study_uid):
     """Test query_series using the DICOM client directly"""
-    study_uid = test_query_studies(dicom_client)
-    
-    result = dicom_client.query_series(study_instance_uid=study_uid)
+    result = dicom_client.query_series(study_instance_uid=test_study_uid)
     
     assert result is not None
     assert isinstance(result, list)
@@ -279,8 +316,6 @@ def test_query_series(dicom_client):
     
     # Verify the test series
     series_found = False
-    series_uid = None
-    
     for series in result:
         series_number = series.get("SeriesNumber")
         if series_number is None:
@@ -289,18 +324,15 @@ def test_query_series(dicom_client):
         # SeriesNumber may be returned as a string depending on the server
         if str(series_number).strip() == "1":
             series_found = True
-            series_uid = series.get("SeriesInstanceUID")
             break
     
     assert series_found, "Test series not found"
-    return series_uid
 
 
-def test_query_instances(dicom_client):
+def test_query_instances(dicom_client, test_series_uid):
     """Test query_instances using the DICOM client directly"""
-    series_uid = test_query_series(dicom_client)
     
-    result = dicom_client.query_instance(series_instance_uid=series_uid)
+    result = dicom_client.query_instance(series_instance_uid=test_series_uid)
     
     assert result is not None
     assert isinstance(result, list)

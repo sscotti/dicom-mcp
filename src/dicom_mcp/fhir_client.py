@@ -137,6 +137,27 @@ class FhirClient:
         response.raise_for_status()
         return response.json()
     
+    def delete_resource(self, resource_type: str, resource_id: str) -> dict:
+        """Delete a FHIR resource by type and id."""
+        url = f"{self.base_url}/{resource_type}/{resource_id}"
+        resp = httpx.delete(url, headers=self.headers, timeout=30.0, verify=False, follow_redirects=True)
+        if resp.status_code == 204:
+            return {"success": True}
+        try:
+            return resp.json()
+        except Exception:
+            return {"success": resp.status_code in (200, 202)}
+
+    def get_capabilities(self, resource_type: str = "") -> dict:
+        """Get the FHIR capability statement or the metadata for a resource type."""
+        if resource_type:
+            url = f"{self.base_url}/{resource_type}/$metadata"
+        else:
+            url = f"{self.base_url}/metadata"
+        resp = httpx.get(url, headers=self.headers, timeout=30.0, verify=False, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.json()
+
     def verify_connection(self) -> tuple[bool, str]:
         """Verify connectivity to the FHIR server using a capability statement.
         

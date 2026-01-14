@@ -10,9 +10,20 @@ import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Any, AsyncIterator, Optional, Tuple
 
 from mcp.server.fastmcp import FastMCP, Context
+try:
+    from mcp.server.fastmcp import ToolResult
+    from mcp.types import TextContent
+except ImportError:
+    try:
+        from fastmcp.tools.tool import ToolResult
+        from mcp.types import TextContent
+    except ImportError:
+        ToolResult = None
+        TextContent = None
 import pydicom
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import generate_uid, ExplicitVRLittleEndian
@@ -24,6 +35,7 @@ from .mysql_client import MiniRisClient, MiniRisConnectionSettings
 from .config import DicomConfiguration, load_config
 from .virtual_cr import VirtualCRDevice
 from .report_generator import generate_radiology_report_pdf
+from .resources import StaticResource, load_resource_catalog
 
 # Configure logging
 logger = logging.getLogger("dicom_mcp")
@@ -36,6 +48,23 @@ class DicomContext:
     client: DicomClient
     fhir_client: Optional[FhirClient] = None
     mini_ris_client: Optional[MiniRisClient] = None
+    resources: Dict[str, StaticResource] = None
+
+
+def _format_query_result(results: List[Dict[str, Any]], empty_message: str = "No results found.") -> Dict[str, Any]:
+    """Format query results to match FastMCP's expected structure.
+    
+    FastMCP creates both content (with stringified JSON) and structuredContent (with actual data).
+    This function ensures consistent formatting for empty results and errors.
+    
+    Args:
+        results: List of result dictionaries (can be empty)
+        empty_message: Message to include when results are empty
+        
+    Returns:
+        Dictionary with 'result' key containing the results list
+    """
+    return {"result": results if results else []}
 
 
 def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMCP:
@@ -44,12 +73,17 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
     # Define a simple lifespan function
     @asynccontextmanager
     async def lifespan(server: FastMCP) -> AsyncIterator[DicomContext]:
+        config_path_obj = Path(config_path).resolve()
         # Load config
-        config = load_config(config_path)
+        config = load_config(str(config_path_obj))
         
         # Get the current node and calling AE title
         current_node = config.nodes[config.current_node]
         
+        # Load static resources
+        resources_dir = config_path_obj.parent / "resources"
+        resource_catalog = load_resource_catalog(resources_dir)
+
         # Create DICOM client
         client = DicomClient(
             host=current_node.host,
@@ -116,6 +150,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 client=client,
                 fhir_client=fhir_client,
                 mini_ris_client=mini_ris_client,
+                resources=resource_catalog,
             )
         finally:
             pass
@@ -123,26 +158,389 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
     # Create server
     mcp = FastMCP(name, lifespan=lifespan)
     
+    # Register resources using FastMCP's ResourceManager
+    # This makes resources visible in MCP Jam's Resources panel
+    # Resources are loaded from resources/manifest.yaml
+    # Reference: https://github.com/modelcontextprotocol/python-sdk/tree/main/src/mcp/server/fastmcp/resources
+    config_path_obj = Path(config_path).resolve()
+    resources_dir = config_path_obj.parent / "resources"
+    resource_catalog = load_resource_catalog(resources_dir)
+    
+    # Try to register resources using ResourceManager directly
+    # Reference: https://github.com/modelcontextprotocol/python-sdk/tree/main/src/mcp/server/fastmcp/resources
+    try:
+        # Try to import concrete Resource classes (not abstract base class)
+        ResourceClass = None
+        
+        # Try multiple import paths for concrete Resource classes
+        import_paths = [
+            ('mcp.server.fastmcp.resources.static', 'StaticResource'),
+            ('mcp.server.fastmcp.resources.file', 'FileResource'),
+            ('mcp.server.fastmcp.resources', 'StaticResource'),
+        ]
+        
+        for module_path, class_name in import_paths:
+            try:
+                module = __import__(module_path, fromlist=[class_name])
+                ResourceClass = getattr(module, class_name)
+                logger.info(f"Successfully imported {class_name} from {module_path}")
+                break
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"Failed to import {class_name} from {module_path}: {e}")
+                continue
+        
+        # If no concrete class found, create a simple implementation
+        if not ResourceClass:
+            try:
+                from mcp.server.fastmcp.resources.base import Resource as BaseResource
+                
+                class SimpleStaticResource(BaseResource):
+                    """Simple concrete Resource implementation for static content."""
+                    def __init__(self, uri, name, description, mime_type, text=None, content=None):
+                        super().__init__(uri=uri, name=name, description=description, mime_type=mime_type)
+                        self._text = text or content or ""
+                    
+                    async def read(self, context=None):
+                        """Read the resource content."""
+                        return self._text
+                
+                ResourceClass = SimpleStaticResource
+                logger.info("Created SimpleStaticResource class as fallback")
+            except ImportError as e:
+                logger.debug(f"Could not create fallback Resource class: {e}")
+        
+        from pydantic import AnyUrl
+        
+        # Use ResourceManager directly with a concrete Resource class
+        # FastMCP's add_resource method has a different signature, so we'll use ResourceManager
+        resource_manager = getattr(mcp, '_resource_manager', None)
+        
+        if resource_manager and ResourceClass:
+            logger.info("Using ResourceManager directly with Resource class")
+            
+            registered_count = 0
+            for resource_id, resource in resource_catalog.items():
+                try:
+                    # Create URI for the resource
+                    uri = AnyUrl(f"dicom-mcp://resource/{resource_id}")
+                    
+                    # Prepare content
+                    if resource.path and resource.path.exists():
+                        content = resource.path.read_text(encoding="utf-8", errors="replace")
+                    elif resource.homepage:
+                        content = f"Resource reference: {resource.homepage}\n\nThis resource is available at: {resource.homepage}"
+                    else:
+                        content = f"Resource '{resource_id}' is not available locally. Check the manifest for details."
+                    
+                    # Create a Resource instance - try different initialization styles
+                    try:
+                        # Try with text parameter
+                        fastmcp_resource = ResourceClass(
+                            uri=uri,
+                            name=resource.name,
+                            description=resource.description,
+                            mime_type=resource.media_type,
+                            text=content,
+                        )
+                    except (TypeError, ValueError) as e1:
+                        try:
+                            # Try with content parameter
+                            fastmcp_resource = ResourceClass(
+                                uri=uri,
+                                name=resource.name,
+                                description=resource.description,
+                                mime_type=resource.media_type,
+                                content=content,
+                            )
+                        except (TypeError, ValueError) as e2:
+                            # Try minimal parameters (for our SimpleStaticResource fallback)
+                            try:
+                                fastmcp_resource = ResourceClass(
+                                    uri=uri,
+                                    name=resource.name,
+                                    description=resource.description,
+                                    mime_type=resource.media_type,
+                                    text=content,
+                                )
+                            except Exception as e3:
+                                logger.warning(f"All Resource initialization attempts failed: {e1}, {e2}, {e3}")
+                                raise
+                    
+                    # Add resource to ResourceManager
+                    added_resource = resource_manager.add_resource(fastmcp_resource)
+                    registered_count += 1
+                    logger.info(f"Registered resource: {uri} ({resource.name})")
+                    logger.debug(f"Added resource type: {type(added_resource)}, URI: {added_resource.uri if hasattr(added_resource, 'uri') else 'N/A'}")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to register resource {resource_id}: {e}", exc_info=True)
+            
+            # Verify registration
+            try:
+                all_resources = resource_manager.list_resources()
+                logger.info(f"Registered {registered_count} resources with ResourceManager")
+                logger.info(f"Total resources in ResourceManager: {len(all_resources)}")
+                for res in all_resources:
+                    logger.debug(f"  - {res.uri if hasattr(res, 'uri') else 'N/A'} ({res.name if hasattr(res, 'name') else 'N/A'})")
+            except Exception as e:
+                logger.warning(f"Could not verify resource registration: {e}")
+                logger.info(f"Registered {registered_count} resources with ResourceManager")
+        elif ResourceClass:
+            # Fallback: Use ResourceManager directly if add_resource doesn't exist
+            resource_manager = getattr(mcp, '_resource_manager', None) or getattr(mcp, 'resource_manager', None)
+            
+            if resource_manager:
+                logger.info("Found ResourceManager, using it directly")
+                registered_count = 0
+                for resource_id, resource in resource_catalog.items():
+                    try:
+                        uri = AnyUrl(f"dicom-mcp://resource/{resource_id}")
+                        
+                        if resource.path and resource.path.exists():
+                            content = resource.path.read_text(encoding="utf-8", errors="replace")
+                        elif resource.homepage:
+                            content = f"Resource reference: {resource.homepage}\n\nThis resource is available at: {resource.homepage}"
+                        else:
+                            content = f"Resource '{resource_id}' is not available locally. Check the manifest for details."
+                        
+                        try:
+                            fastmcp_resource = ResourceClass(
+                                uri=uri,
+                                name=resource.name,
+                                description=resource.description,
+                                mime_type=resource.media_type,
+                                text=content,
+                            )
+                        except TypeError:
+                            fastmcp_resource = ResourceClass(
+                                uri=uri,
+                                name=resource.name,
+                                description=resource.description,
+                                mime_type=resource.media_type,
+                                content=content,
+                            )
+                        
+                        resource_manager.add_resource(fastmcp_resource)
+                        registered_count += 1
+                        logger.info(f"Registered resource via ResourceManager: {uri} ({resource.name})")
+                    except Exception as e:
+                        logger.warning(f"Failed to register resource {resource_id}: {e}", exc_info=True)
+                
+                logger.info(f"Registered {registered_count} resources with ResourceManager")
+        else:
+            # Fallback: Try using @mcp.resource decorator
+            if not resource_manager:
+                logger.warning("ResourceManager not found on FastMCP instance")
+            if not ResourceClass:
+                logger.warning("Resource class could not be imported from any known location")
+            logger.debug("Trying decorator approach as fallback")
+            if hasattr(mcp, 'resource') and callable(getattr(mcp, 'resource', None)):
+                _resource_handlers = {}
+                for resource_id, resource in resource_catalog.items():
+                    res_path = resource.path
+                    res_id = resource_id
+                    res_name = resource.name
+                    res_desc = resource.description
+                    res_mime = resource.media_type
+                    res_homepage = resource.homepage
+                    
+                    def make_handler(path, rid, name, desc, mime, homepage):
+                        @mcp.resource(
+                            uri=f"dicom-mcp://resource/{rid}",
+                            name=name,
+                            description=desc,
+                            mime_type=mime,
+                        )
+                        def resource_handler(ctx: Context = None) -> str:
+                            if path and path.exists():
+                                return path.read_text(encoding="utf-8", errors="replace")
+                            if homepage:
+                                return f"Resource reference: {homepage}\n\nThis resource is available at: {homepage}"
+                            return f"Resource '{rid}' is not available locally. Check the manifest for details."
+                        return resource_handler
+                    
+                    try:
+                        handler = make_handler(res_path, res_id, res_name, res_desc, res_mime, res_homepage)
+                        _resource_handlers[resource_id] = handler
+                        setattr(mcp, f"_resource_{resource_id}", handler)
+                        logger.debug(f"Registered resource via decorator: dicom-mcp://resource/{resource_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to register resource {resource_id} via decorator: {e}")
+                
+                logger.info(f"Registered {len(_resource_handlers)} resources with FastMCP decorator")
+    
+    except ImportError as e:
+        logger.warning(f"Could not import FastMCP Resource classes: {e}. Resources accessible via tools only.")
+    except Exception as e:
+        logger.warning(f"Error registering resources: {e}. Resources accessible via tools only.")
+    
+    # Register prompts using FastMCP's prompt management
+    # Try to register the system prompt from system_prompt.txt
+    try:
+        prompt_manager = getattr(mcp, '_prompt_manager', None)
+        
+        if prompt_manager:
+            logger.info("Found PromptManager on FastMCP instance")
+            
+            # Load system prompt from file
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(os.path.dirname(script_dir))
+            prompt_path = os.path.join(project_root, "system_prompt.txt")
+            
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    prompt_text = f.read().strip()
+                
+                # Try to register the prompt using @mcp.prompt decorator (similar to @mcp.resource)
+                if hasattr(mcp, 'prompt') and callable(getattr(mcp, 'prompt', None)):
+                    try:
+                        @mcp.prompt("DICOM MCP System Prompt")
+                        def dicom_system_prompt(ctx: Context = None) -> str:
+                            """Recommended system prompt for optimal LLM interactions with the DICOM MCP server."""
+                            return prompt_text
+                        
+                        logger.info("Registered system prompt via @mcp.prompt decorator")
+                    except Exception as e:
+                        logger.warning(f"Failed to register prompt via @mcp.prompt decorator: {e}")
+                
+                # Also try add_prompt method as fallback
+                if hasattr(mcp, 'add_prompt') and callable(mcp.add_prompt):
+                    try:
+                        # Try different parameter styles for add_prompt (without description)
+                        try:
+                            result = mcp.add_prompt(
+                                name="DICOM MCP System Prompt",
+                                template=prompt_text,
+                            )
+                            logger.info(f"Registered system prompt via add_prompt (name + template), result: {type(result)}")
+                        except TypeError:
+                            try:
+                                result = mcp.add_prompt(
+                                    name="DICOM MCP System Prompt",
+                                    prompt=prompt_text,
+                                )
+                                logger.info(f"Registered system prompt via add_prompt (name + prompt), result: {type(result)}")
+                            except TypeError:
+                                try:
+                                    result = mcp.add_prompt(
+                                        "DICOM MCP System Prompt",
+                                        prompt_text,
+                                    )
+                                    logger.info(f"Registered system prompt via add_prompt (positional), result: {type(result)}")
+                                except TypeError:
+                                    try:
+                                        # Try with just template/prompt as first arg
+                                        result = mcp.add_prompt(prompt_text)
+                                        logger.info(f"Registered system prompt via add_prompt (template only), result: {type(result)}")
+                                    except Exception as e:
+                                        logger.warning(f"add_prompt failed with all parameter styles: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to register prompt via add_prompt: {e}")
+                
+                # Also try using PromptManager directly
+                if hasattr(prompt_manager, 'add_prompt'):
+                    try:
+                        # Try different parameter styles for PromptManager.add_prompt
+                        try:
+                            prompt_manager.add_prompt(
+                                name="DICOM MCP System Prompt",
+                                template=prompt_text,
+                            )
+                            logger.info("Registered system prompt via PromptManager.add_prompt (name + template)")
+                        except TypeError:
+                            try:
+                                prompt_manager.add_prompt(
+                                    name="DICOM MCP System Prompt",
+                                    prompt=prompt_text,
+                                )
+                                logger.info("Registered system prompt via PromptManager.add_prompt (name + prompt)")
+                            except TypeError:
+                                try:
+                                    prompt_manager.add_prompt(
+                                        "DICOM MCP System Prompt",
+                                        prompt_text,
+                                    )
+                                    logger.info("Registered system prompt via PromptManager.add_prompt (positional)")
+                                except Exception as e:
+                                    logger.debug(f"PromptManager.add_prompt failed with all styles: {e}")
+                    except Exception as e:
+                        logger.debug(f"PromptManager.add_prompt failed: {e}")
+                
+                # Verify registration
+                try:
+                    if hasattr(prompt_manager, 'list_prompts'):
+                        all_prompts = prompt_manager.list_prompts()
+                        logger.info(f"Total prompts in PromptManager: {len(all_prompts)}")
+                        for prompt in all_prompts:
+                            # Handle both object and string prompts
+                            if isinstance(prompt, str):
+                                logger.debug(f"  - {prompt}")
+                            elif hasattr(prompt, 'name'):
+                                logger.debug(f"  - {prompt.name}")
+                            else:
+                                logger.debug(f"  - {prompt}")
+                except Exception as e:
+                    logger.debug(f"Could not list prompts from PromptManager: {e}")
+            else:
+                logger.debug(f"System prompt file not found at {prompt_path}")
+        else:
+            logger.debug("PromptManager not found on FastMCP instance")
+    except Exception as e:
+        logger.debug(f"Error registering prompts: {e}")
+    
+    # Register tools
+        logger.warning(f"Could not import FastMCP Resource classes: {e}. Resources accessible via tools only.")
+    except Exception as e:
+        logger.warning(f"Error registering resources: {e}. Resources accessible via tools only.")
+    
     # Register tools
     @mcp.tool()
-    def list_dicom_nodes(ctx: Context = None) -> Dict[str, Any]:
+    def list_dicom_nodes(ctx: Context = None) -> str:
         """List all configured DICOM nodes and their connection information.
         
         This tool returns information about all configured DICOM nodes in the system
         and shows which node is currently selected for operations.
         
         Returns:
-            Dictionary containing current node and available nodes
+            Human-readable string describing the current node and available nodes
         """
         dicom_ctx = ctx.request_context.lifespan_context
         config = dicom_ctx.config
         
-        return {
-            "current_node": config.current_node,
-            "nodes": list(config.nodes.keys()),
-            "status": "success"
-        }
+        # Return human-readable text instead of dict to avoid FastMCP stringifying JSON
+        # This prevents the schema validation error in MCP Jam
+        nodes_str = ', '.join(config.nodes.keys())
+        return f"Current node: {config.current_node}\nAvailable nodes: {nodes_str}\nStatus: success"
     
+    @mcp.tool()
+    def list_saved_resources(ctx: Context = None) -> Dict[str, Any]:
+        """List saved reference resources bundled with this MCP server."""
+        dicom_ctx = ctx.request_context.lifespan_context
+        catalog = dicom_ctx.resources or {}
+        return {
+            "count": len(catalog),
+            "resources": [res.to_dict(include_content=False) for res in catalog.values()],
+        }
+
+    @mcp.tool()
+    def get_saved_resource(
+        resource_id: str,
+        include_content: bool = True,
+        ctx: Context = None,
+    ) -> Dict[str, Any]:
+        """Retrieve a saved reference resource by ID."""
+        dicom_ctx = ctx.request_context.lifespan_context
+        catalog = dicom_ctx.resources or {}
+        resource = catalog.get(resource_id)
+        if not resource:
+            return {
+                "success": False,
+                "message": f"Resource '{resource_id}' not found.",
+            }
+        data = resource.to_dict(include_content=include_content)
+        data["success"] = True
+        return data
+
     @mcp.tool()
     def extract_pdf_text_from_dicom(
         study_instance_uid: str,
@@ -265,7 +663,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         additional_attributes: Optional[List[str]] = None,
         exclude_attributes: Optional[List[str]] = None, 
         ctx: Context = None
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Query patients matching the specified criteria from the DICOM node.
         
         This tool performs a DICOM C-FIND operation at the PATIENT level to find patients
@@ -284,17 +682,20 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             exclude_attributes: List of DICOM attributes to exclude from the results
         
         Returns:
-            List of dictionaries, each representing a matched patient with their attributes
+            Dictionary with 'result' key containing a list of patient dictionaries.
+            Matches FastMCP's structuredContent format for consistency.
         
         Example:
-            [
-                {
-                    "PatientID": "12345",
-                    "PatientName": "SMITH^JOHN",
-                    "PatientBirthDate": "19700101",
-                    "PatientSex": "M"
-                }
-            ]
+            {
+                "result": [
+                    {
+                        "PatientID": "12345",
+                        "PatientName": "SMITH^JOHN",
+                        "PatientBirthDate": "19700101",
+                        "PatientSex": "M"
+                    }
+                ]
+            }
         
         Raises:
             Exception: If there is an error communicating with the DICOM node
@@ -303,7 +704,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         client = dicom_ctx.client
         
         try:
-            return client.query_patient(
+            results = client.query_patient(
                 patient_id=patient_id,
                 name_pattern=name_pattern,
                 birth_date=birth_date,
@@ -311,8 +712,200 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 additional_attrs=additional_attributes or [],
                 exclude_attrs=exclude_attributes or []
             )
+            # Always return a list, even if empty (no patients found is a valid result)
+            results = results if isinstance(results, list) else []
+            # Return in FastMCP's expected format: {"result": [...]}
+            # This matches the structure when results are found, ensuring consistent format
+            return {"result": results}
         except Exception as e:
-            raise Exception(f"Error querying patients: {str(e)}")
+            # For connection/association errors, re-raise them
+            error_msg = str(e)
+            if "Failed to associate" in error_msg or "connection" in error_msg.lower():
+                raise Exception(f"Error querying patients: {error_msg}")
+            # For other errors (including empty results), return empty result structure
+            # This matches FastMCP's format and prevents serialization issues
+            return {"result": []}
+
+    def _get_orthanc_base_url(dicom_ctx: DicomContext) -> Optional[str]:
+        """Get Orthanc REST API base URL if we're connected to Orthanc.
+        
+        Returns:
+            Base URL string (e.g., "https://localhost:8042") or None if not Orthanc
+        """
+        try:
+            current_node = dicom_ctx.config.nodes[dicom_ctx.config.current_node]
+            # Try common Orthanc REST API ports
+            for port in [8042, 8043]:
+                base_url = f"https://{current_node.host}:{port}"
+                try:
+                    # Quick check if Orthanc REST API is available
+                    response = requests.get(
+                        f"{base_url}/system",
+                        timeout=2,
+                        verify=False
+                    )
+                    if response.status_code == 200:
+                        return base_url
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+    
+    def _get_series_for_study(orthanc_base_url: str, study_instance_uid: str) -> List[Dict[str, Any]]:
+        """Get series information for a study from Orthanc REST API.
+        
+        Args:
+            orthanc_base_url: Base URL for Orthanc REST API
+            study_instance_uid: Study Instance UID to look up
+        
+        Returns:
+            List of series dictionaries with their attributes
+        """
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
+            # First, find the study ID in Orthanc
+            search_response = requests.post(
+                f"{orthanc_base_url}/tools/find",
+                json={"Level": "Study", "Query": {"StudyInstanceUID": study_instance_uid}},
+                timeout=5,
+                verify=False
+            )
+            search_response.raise_for_status()
+            study_ids = search_response.json()
+            
+            if not study_ids:
+                return []
+            
+            # Get the first matching study (should be unique)
+            study_id = study_ids[0]
+            
+            # Get detailed study information including series
+            study_response = requests.get(
+                f"{orthanc_base_url}/studies/{study_id}",
+                timeout=5,
+                verify=False
+            )
+            study_response.raise_for_status()
+            study_info = study_response.json()
+            
+            # Get series IDs from the study
+            series_ids = study_info.get("Series", [])
+            if not series_ids:
+                return []
+            
+            # Get detailed information for each series
+            series_list = []
+            for series_id in series_ids:
+                try:
+                    series_response = requests.get(
+                        f"{orthanc_base_url}/series/{series_id}",
+                        timeout=5,
+                        verify=False
+                    )
+                    series_response.raise_for_status()
+                    series_info = series_response.json()
+                    
+                    # Extract relevant series information
+                    main_tags = series_info.get("MainDicomTags", {})
+                    series_data = {
+                        "SeriesInstanceUID": main_tags.get("SeriesInstanceUID", ""),
+                        "SeriesNumber": main_tags.get("SeriesNumber", ""),
+                        "SeriesDescription": main_tags.get("SeriesDescription", ""),
+                        "Modality": main_tags.get("Modality", ""),
+                        "SeriesDate": main_tags.get("SeriesDate", ""),
+                        "SeriesTime": main_tags.get("SeriesTime", ""),
+                        "NumberOfSeriesRelatedInstances": len(series_info.get("Instances", [])),
+                        "OrthancSeriesID": series_id
+                    }
+                    series_list.append(series_data)
+                except Exception as e:
+                    logger.warning(f"Failed to get series {series_id}: {e}")
+                    continue
+            
+            return series_list
+        except Exception as e:
+            logger.debug(f"Failed to get series from Orthanc for study {study_instance_uid}: {e}")
+            return []
+
+    def _get_instances_for_series(orthanc_base_url: str, series_instance_uid: str) -> List[Dict[str, Any]]:
+        """Get instance information for a series from Orthanc REST API.
+        
+        Args:
+            orthanc_base_url: Base URL for Orthanc REST API
+            series_instance_uid: Series Instance UID to look up
+        
+        Returns:
+            List of instance dictionaries with their attributes
+        """
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
+            # First, find the series ID in Orthanc
+            search_response = requests.post(
+                f"{orthanc_base_url}/tools/find",
+                json={"Level": "Series", "Query": {"SeriesInstanceUID": series_instance_uid}},
+                timeout=5,
+                verify=False
+            )
+            search_response.raise_for_status()
+            series_ids = search_response.json()
+            
+            if not series_ids:
+                return []
+            
+            # Get the first matching series (should be unique)
+            series_id = series_ids[0]
+            
+            # Get detailed series information including instances
+            series_response = requests.get(
+                f"{orthanc_base_url}/series/{series_id}",
+                timeout=5,
+                verify=False
+            )
+            series_response.raise_for_status()
+            series_info = series_response.json()
+            
+            # Get instance IDs from the series
+            instance_ids = series_info.get("Instances", [])
+            if not instance_ids:
+                return []
+            
+            # Get detailed information for each instance
+            instance_list = []
+            for instance_id in instance_ids:
+                try:
+                    instance_response = requests.get(
+                        f"{orthanc_base_url}/instances/{instance_id}",
+                        timeout=5,
+                        verify=False
+                    )
+                    instance_response.raise_for_status()
+                    instance_info = instance_response.json()
+                    
+                    # Extract relevant instance information
+                    main_tags = instance_info.get("MainDicomTags", {})
+                    instance_data = {
+                        "SOPInstanceUID": main_tags.get("SOPInstanceUID", ""),
+                        "SOPClassUID": main_tags.get("SOPClassUID", ""),
+                        "InstanceNumber": main_tags.get("InstanceNumber", ""),
+                        "ContentDate": main_tags.get("ContentDate", ""),
+                        "ContentTime": main_tags.get("ContentTime", ""),
+                        "ImageType": main_tags.get("ImageType", ""),
+                        "OrthancInstanceID": instance_id
+                    }
+                    instance_list.append(instance_data)
+                except Exception as e:
+                    logger.warning(f"Failed to get instance {instance_id}: {e}")
+                    continue
+            
+            return instance_list
+        except Exception as e:
+            logger.debug(f"Failed to get instances from Orthanc for series {series_instance_uid}: {e}")
+            return []
 
     @mcp.tool()
     def query_studies(
@@ -326,12 +919,15 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         additional_attributes: Optional[List[str]] = None,
         exclude_attributes: Optional[List[str]] = None, 
         ctx: Context = None
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Query studies matching the specified criteria from the DICOM node.
         
         This tool performs a DICOM C-FIND operation at the STUDY level to find studies
         matching the provided search criteria. All search parameters are optional and can
         be combined for more specific queries.
+        
+        When connected to Orthanc, this tool also enriches the response with series
+        information for each study using the Orthanc REST API.
         
         Args:
             patient_id: Patient ID to search for, e.g., "12345678"
@@ -350,19 +946,32 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             exclude_attributes: List of DICOM attributes to exclude from the results
         
         Returns:
-            List of dictionaries, each representing a matched study with its attributes
+            Dictionary with 'result' key containing a list of study dictionaries.
+            When connected to Orthanc, each study also includes a "Series" field containing
+            detailed series information. Matches FastMCP's structuredContent format for consistency.
         
         Example:
-            [
-                {
-                    "StudyInstanceUID": "1.2.840.113619.2.1.1.322.1600364094.412.1009",
-                    "StudyDate": "20230215",
-                    "StudyDescription": "CHEST CT",
-                    "PatientID": "12345",
-                    "PatientName": "SMITH^JOHN",
-                    "ModalitiesInStudy": "CT"
-                }
-            ]
+            {
+                "result": [
+                    {
+                        "StudyInstanceUID": "1.2.840.113619.2.1.1.322.1600364094.412.1009",
+                        "StudyDate": "20230215",
+                        "StudyDescription": "CHEST CT",
+                        "PatientID": "12345",
+                        "PatientName": "SMITH^JOHN",
+                        "ModalitiesInStudy": "CT",
+                        "Series": [
+                            {
+                                "SeriesInstanceUID": "1.2.840.113619.2.1.1.322.1600364094.412.2005",
+                                "SeriesNumber": "2",
+                                "SeriesDescription": "AXIAL 2.5MM",
+                                "Modality": "CT",
+                                "NumberOfSeriesRelatedInstances": 120
+                            }
+                        ]
+                    }
+                ]
+            }
         
         Raises:
             Exception: If there is an error communicating with the DICOM node
@@ -371,7 +980,8 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         client = dicom_ctx.client
         
         try:
-            return client.query_study(
+            # Get studies via DICOM C-FIND
+            studies = client.query_study(
                 patient_id=patient_id,
                 study_date=study_date,
                 modality=modality_in_study,
@@ -382,183 +992,30 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 additional_attrs=additional_attributes or [],
                 exclude_attrs=exclude_attributes or []
             )
+            
+            # Try to enrich with series information if we're using Orthanc
+            orthanc_base_url = _get_orthanc_base_url(dicom_ctx)
+            if orthanc_base_url:
+                logger.debug(f"Enriching studies with series information from Orthanc at {orthanc_base_url}")
+                for study in studies:
+                    study_uid = study.get("StudyInstanceUID")
+                    if study_uid:
+                        series_list = _get_series_for_study(orthanc_base_url, study_uid)
+                        if series_list:
+                            study["Series"] = series_list
+                            logger.debug(f"Added {len(series_list)} series to study {study_uid}")
+            
+            # Return in FastMCP's expected format: {"result": [...]}
+            # This matches the structure when results are found, ensuring consistent format
+            return {"result": studies if isinstance(studies, list) else []}
         except Exception as e:
-            raise Exception(f"Error querying studies: {str(e)}")
-
-    @mcp.tool()
-    def query_series(
-        study_instance_uid: str, 
-        modality: str = "", 
-        series_number: str = "",
-        series_description: str = "", 
-        series_instance_uid: str = "",
-        attribute_preset: str = "standard", 
-        additional_attributes: Optional[List[str]] = None,
-        exclude_attributes: Optional[List[str]] = None, 
-        ctx: Context = None
-    ) -> List[Dict[str, Any]]:
-        """Query series within a study from the DICOM node.
-        
-        This tool performs a DICOM C-FIND operation at the SERIES level to find series
-        within a specified study. The study_instance_uid is required, and additional
-        parameters can be used to filter the results.
-        
-        Args:
-            study_instance_uid: Unique identifier for the study (required)
-            modality: Filter by imaging modality, e.g., "CT", "MR", "US", "CR"
-            series_number: Filter by series number
-            series_description: Series description text (can include wildcards), e.g., "AXIAL*"
-            series_instance_uid: Unique identifier for a specific series
-            attribute_preset: Controls which attributes to include in results:
-                - "minimal": Only essential attributes
-                - "standard": Common attributes (default)
-                - "extended": All available attributes
-            additional_attributes: List of specific DICOM attributes to include beyond the preset
-            exclude_attributes: List of DICOM attributes to exclude from the results
-        
-        Returns:
-            List of dictionaries, each representing a matched series with its attributes
-        
-        Example:
-            [
-                {
-                    "SeriesInstanceUID": "1.2.840.113619.2.1.1.322.1600364094.412.2005",
-                    "SeriesNumber": "2",
-                    "SeriesDescription": "AXIAL 2.5MM",
-                    "Modality": "CT",
-                    "NumberOfSeriesRelatedInstances": "120"
-                }
-            ]
-        
-        Raises:
-            Exception: If there is an error communicating with the DICOM node
-        """
-        dicom_ctx = ctx.request_context.lifespan_context
-        client = dicom_ctx.client
-        
-        try:
-            return client.query_series(
-                study_instance_uid=study_instance_uid,
-                series_instance_uid=series_instance_uid,
-                modality=modality,
-                series_number=series_number,
-                series_description=series_description,
-                attribute_preset=attribute_preset,
-                additional_attrs=additional_attributes or [],
-                exclude_attrs=exclude_attributes or []
-            )
-        except Exception as e:
-            raise Exception(f"Error querying series: {str(e)}")
-
-    @mcp.tool()
-    def query_instances(
-        series_instance_uid: str, 
-        instance_number: str = "", 
-        sop_instance_uid: str = "",
-        attribute_preset: str = "standard", 
-        additional_attributes: Optional[List[str]] = None,
-        exclude_attributes: Optional[List[str]] = None, 
-        ctx: Context = None 
-    ) -> List[Dict[str, Any]]:
-        """Query individual DICOM instances (images) within a series.
-        
-        This tool performs a DICOM C-FIND operation at the IMAGE level to find individual
-        DICOM instances within a specified series. The series_instance_uid is required,
-        and additional parameters can be used to filter the results.
-        
-        Args:
-            series_instance_uid: Unique identifier for the series (required)
-            instance_number: Filter by specific instance number within the series
-            sop_instance_uid: Unique identifier for a specific instance
-            attribute_preset: Controls which attributes to include in results:
-                - "minimal": Only essential attributes
-                - "standard": Common attributes (default)
-                - "extended": All available attributes
-            additional_attributes: List of specific DICOM attributes to include beyond the preset
-            exclude_attributes: List of DICOM attributes to exclude from the results
-        
-        Returns:
-            List of dictionaries, each representing a matched instance with its attributes
-        
-        Example:
-            [
-                {
-                    "SOPInstanceUID": "1.2.840.113619.2.1.1.322.1600364094.412.3001",
-                    "SOPClassUID": "1.2.840.10008.5.1.4.1.1.2",
-                    "InstanceNumber": "45",
-                    "ContentDate": "20230215",
-                    "ContentTime": "152245"
-                }
-            ]
-        
-        Raises:
-            Exception: If there is an error communicating with the DICOM node
-        """
-        dicom_ctx = ctx.request_context.lifespan_context
-        client = dicom_ctx.client
-        
-        try:
-            return client.query_instance(
-                series_instance_uid=series_instance_uid,
-                sop_instance_uid=sop_instance_uid,
-                instance_number=instance_number,
-                attribute_preset=attribute_preset,
-                additional_attrs=additional_attributes or [],
-                exclude_attrs=exclude_attributes or []
-            )
-        except Exception as e:
-            raise Exception(f"Error querying instances: {str(e)}")
-        
-    @mcp.tool()
-    def move_series(
-        destination_node: str,
-        series_instance_uid: str,
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """Move a DICOM series to another DICOM node.
-        
-        This tool transfers a specific series from the current DICOM server to a 
-        destination DICOM node.
-        
-        Args:
-            destination_node: Name of the destination node as defined in the configuration
-            series_instance_uid: The unique identifier for the series to be moved
-        
-        Returns:
-            Dictionary containing:
-            - success: Boolean indicating if the operation was successful
-            - message: Description of the operation result or error
-            - completed: Number of successfully transferred instances
-            - failed: Number of failed transfers
-            - warning: Number of transfers with warnings
-        
-        Example:
-            {
-                "success": true,
-                "message": "C-MOVE operation completed successfully",
-                "completed": 120,
-                "failed": 0,
-                "warning": 0
-            }
-        """
-        dicom_ctx = ctx.request_context.lifespan_context
-        config = dicom_ctx.config
-        client = dicom_ctx.client
-        
-        # Check if destination node exists
-        if destination_node not in config.nodes:
-            raise ValueError(f"Destination node '{destination_node}' not found in configuration")
-        
-        # Get the destination AE title
-        destination_ae = config.nodes[destination_node].ae_title
-        
-        # Execute the move operation
-        result = client.move_series(
-            destination_ae=destination_ae,
-            series_instance_uid=series_instance_uid
-        )
-        
-        return result
+            # For connection/association errors, re-raise them
+            error_msg = str(e)
+            if "Failed to associate" in error_msg or "connection" in error_msg.lower():
+                raise Exception(f"Error querying studies: {error_msg}")
+            # For other errors (including empty results), return empty result structure
+            # This matches FastMCP's format and prevents serialization issues
+            return {"result": []}
 
     @mcp.tool()
     def move_study(
@@ -664,90 +1121,70 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         return message
     
     @mcp.tool()
-    def fhir_search_patient(
-        name: Optional[str] = None,
-        identifier: Optional[str] = None,
-        birthdate: Optional[str] = None,
-        gender: Optional[str] = None,
+    def fhir_search_resource(
+        type: str,
+        searchParam: Optional[Dict[str, Any]] = None,
         ctx: Context = None
     ) -> Dict[str, Any]:
-        """Search for Patient resources in the FHIR server.
+        """Search any FHIR resource type with arbitrary search parameters.
         
         Args:
-            name: Patient name to search for (can include partial matches)
-            identifier: Patient identifier (e.g., MRN)
-            birthdate: Patient birth date (YYYY-MM-DD format)
-            gender: Patient gender (male, female, other, unknown)
+            type: The FHIR resource type (e.g., "Patient", "Observation", "ImagingStudy")
+            searchParam: Search parameters as dictionary, e.g., {"name": "Smith", "birthdate": "1990-01-01"}
         
         Returns:
-            FHIR Bundle containing matching Patient resources
-        
-        Example:
-            {
-                "resourceType": "Bundle",
-                "entry": [
-                    {
-                        "resource": {
-                            "resourceType": "Patient",
-                            "id": "example",
-                            "name": [{"family": "Smith", "given": ["John"]}]
-                        }
-                    }
-                ]
-            }
+            FHIR Bundle resource containing search results.
         """
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
             raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
-        
-        params = {}
-        if name:
-            params["name"] = name
-        if identifier:
-            params["identifier"] = identifier
-        if birthdate:
-            params["birthdate"] = birthdate
-        if gender:
-            params["gender"] = gender
-        
         try:
-            return dicom_ctx.fhir_client.search_resource("Patient", params)
+            return dicom_ctx.fhir_client.search_resource(type, searchParam or {})
         except Exception as e:
-            raise Exception(f"Error searching FHIR patients: {str(e)}")
-    
+            raise Exception(f"Error searching FHIR resource {type}: {str(e)}")
+
     @mcp.tool()
-    def fhir_search_imaging_study(
-        patient_id: Optional[str] = None,
-        modality: Optional[str] = None,
-        study_date: Optional[str] = None,
+    def fhir_delete_resource(
+        resource_type: str,
+        resource_id: str,
         ctx: Context = None
     ) -> Dict[str, Any]:
-        """Search for ImagingStudy resources in the FHIR server.
-        
+        """Delete a FHIR resource by type and logical id.
+
         Args:
-            patient_id: Patient ID to filter by
-            modality: Imaging modality (e.g., CT, MR, US)
-            study_date: Study date (YYYY-MM-DD format or range like "2024-01-01:2024-12-31")
-        
+            resource_type: FHIR resource type (e.g. "Patient", "ImagingStudy", ...)
+            resource_id: Logical id of the resource to delete
+
         Returns:
-            FHIR Bundle containing matching ImagingStudy resources
+            FHIR server's delete response or success indicator.
         """
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
             raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
-        
-        params = {}
-        if patient_id:
-            params["patient"] = patient_id
-        if modality:
-            params["modality"] = modality
-        if study_date:
-            params["date"] = study_date
-        
         try:
-            return dicom_ctx.fhir_client.search_resource("ImagingStudy", params)
+            return dicom_ctx.fhir_client.delete_resource(resource_type, resource_id)
         except Exception as e:
-            raise Exception(f"Error searching FHIR ImagingStudy: {str(e)}")
+            raise Exception(f"Error deleting FHIR resource {resource_type}/{resource_id}: {str(e)}")
+
+    @mcp.tool()
+    def fhir_get_capabilities(
+        resource_type: str = "",
+        ctx: Context = None
+    ) -> Dict[str, Any]:
+        """Get the FHIR "CapabilityStatement" or per-resource metadata.
+
+        Args:
+            resource_type: FHIR resource type (optional, empty string means whole server metadata)
+        Returns:
+            FHIR CapabilityStatement (usually "/metadata") or resource metadata.
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+        if not dicom_ctx.fhir_client:
+            raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
+        try:
+            return dicom_ctx.fhir_client.get_capabilities(resource_type)
+        except Exception as e:
+            raise Exception(f"Error getting FHIR capabilities: {str(e)}")
     
     @mcp.tool()
     def fhir_read_resource(
@@ -864,6 +1301,51 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "description": fhir_config.description
         }
     
+    @mcp.tool()
+    def list_mini_ris_orders(
+        mrn: Optional[str] = None,
+        status: Optional[str] = None,
+        accession_number: Optional[str] = None,
+        limit: int = 25,
+        offset: int = 0,
+        ctx: Context = None,
+    ) -> Dict[str, Any]:
+        """List orders from the mini-RIS database.
+        
+        Browse radiology orders stored in the mini-RIS schema with optional filtering.
+        
+        Args:
+            mrn: Filter by patient MRN (exact match)
+            status: Filter by order status (Requested, Scheduled, InProgress, Completed, Cancelled)
+            accession_number: Filter by accession number (exact match)
+            limit: Maximum number of rows to return (1-100, default: 25)
+            offset: Pagination offset (default: 0)
+        
+        Returns:
+            Dictionary containing:
+            - success: Boolean indicating success
+            - count: Number of orders returned
+            - orders: List of order dictionaries with patient info
+            - limit: Applied limit
+            - offset: Applied offset
+            - filters: Applied filter values
+        """
+        dicom_ctx = ctx.request_context.lifespan_context
+
+        if dicom_ctx.mini_ris_client is None:
+            return {
+                "success": False,
+                "message": "Mini-RIS database is not configured. Add the 'mini_ris' section to configuration.yaml.",
+            }
+
+        return dicom_ctx.mini_ris_client.list_orders(
+            mrn=mrn,
+            status=status,
+            accession_number=accession_number,
+            limit=limit,
+            offset=offset,
+        )
+
     @mcp.tool()
     def list_mini_ris_patients(
         mrn: Optional[str] = None,
@@ -1021,6 +1503,30 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
                 "hint": "Ensure mwl-api service is running: docker compose up -d mwl-api",
             }
         
+        # Create MWL task record in mini-RIS database for audit trail
+        mwl_task_id = None
+        try:
+            from datetime import datetime, timedelta
+            
+            # Calculate scheduled_end if not provided (default: 15 minutes after start)
+            scheduled_end = order_data.get('scheduled_end')
+            if not scheduled_end and scheduled_dt:
+                scheduled_end = scheduled_dt + timedelta(minutes=15)
+            
+            mwl_task_id = dicom_ctx.mini_ris_client.create_mwl_task(
+                order_id=order_id,
+                scheduled_station_aet=scheduled_station_aet,
+                scheduled_station_name=None,  # Could be derived from station AET if needed
+                scheduled_start=scheduled_dt,
+                scheduled_end=scheduled_end,
+                scheduled_performing_provider_id=order_data.get('performing_provider_id'),
+                mwl_payload=mwl_payload,
+            )
+            logger.info(f"Created MWL task {mwl_task_id} for order {order_id}")
+        except Exception as e:
+            logger.warning(f"Failed to create MWL task record: {e}")
+            # Don't fail the whole operation if MWL task creation fails
+        
         return {
             "success": True,
             "message": f"MWL created successfully for order {order_id}",
@@ -1033,6 +1539,7 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
             "scheduled_time": scheduled_dt.strftime('%Y-%m-%d %H:%M:%S'),
             "scheduled_station_aet": scheduled_station_aet,
             "mwl_id": mwl_result.get('id'),
+            "mwl_task_id": mwl_task_id,
             "mwl_api_response": mwl_result,
         }
 
@@ -1055,12 +1562,12 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         Workflow:
         1. Queries MWL for the accession number
         2. Generates synthetic images based on procedure
-        3. Creates proper DICOM CR instances with all metadata
+        3. Creates proper DICOM CR instances with metadata
         4. Optionally sends to PACS (Orthanc)
         
         Image modes:
         - "auto": Use AI if OpenAI key available, fallback to simple
-        - "ai": Generate realistic images with DALL-E (requires OPENAI_API_KEY)
+        - "ai": Generate realistic images with OpenAI (requires OPENAI_API_KEY)
         - "simple": Generate basic test images (no API key needed)
         - "sample": Use pre-made sample images from library
         
@@ -1714,5 +2221,57 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         except Exception as e:
             logger.error(f"Failed to attach report: {e}")
             raise Exception(f"Failed to attach report to PACS: {str(e)}")
+    
+    @mcp.tool()
+    def get_system_prompt(ctx: Context = None) -> Dict[str, Any]:
+        """Get the recommended system prompt for use with this DICOM MCP server.
+        
+        Returns the system prompt text that should be configured in MCP Jam
+        or other MCP clients for optimal LLM interactions with this server.
+        
+        Returns:
+            Dictionary containing the system prompt text
+        """
+        try:
+            # Try to read from system_prompt.txt in the project root
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(os.path.dirname(script_dir))
+            prompt_path = os.path.join(project_root, "system_prompt.txt")
+            
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    prompt_text = f.read().strip()
+            else:
+                # Fallback to default prompt if file doesn't exist
+                prompt_text = """You are a medical imaging assistant specialized in DICOM and FHIR workflows. Help users query, analyze, and manage medical imaging data efficiently using the available DICOM tools, including DIMSE, FHIR and DicomWeb.
+
+Key responsibilities:
+- Assist with patient, study, series, and instance queries using the DICOM tools.
+- Assist with reading, writing and analyzing data using FHIR tools (work in progress).
+- Extract and summarize text from DICOM-encapsulated PDF reports
+- Help transfer DICOM data between nodes using C-MOVE operations
+- Provide clear explanations of DICOM concepts and operations
+- Always prioritize data privacy and security
+
+Important reminders:
+- This tool is for research and development purposes only
+- Never make clinical diagnoses based on the data
+- Verify patient information before sharing results
+- Use clear, clinical language when appropriate
+- Most data is retrieved as JSON, but please present the data in either JSON or a tabular form that is human readable.
+- When extracting text from DICOM PDF reports, summarize findings clearly, highlight key measurements and recommendations, and maintain clinical accuracy in your summaries. Organize information in a structured format that's easy to read and understand."""
+            
+            return {
+                "success": True,
+                "prompt": prompt_text,
+                "message": "Copy this prompt into your MCP client's system prompt field (e.g., MCP Jam Playground tab, or Cursor IDE settings)"
+            }
+        except Exception as e:
+            logger.error(f"Failed to read system prompt: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to load system prompt file"
+            }
     
     return mcp

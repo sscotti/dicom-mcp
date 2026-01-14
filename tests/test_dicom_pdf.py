@@ -168,7 +168,7 @@ def upload_pdf_dicom():
         
         # Save to file
         with tempfile.NamedTemporaryFile(suffix='.dcm', delete=False) as temp:
-            ds.save_as(temp.name, write_like_original=False)
+            ds.save_as(temp.name, enforce_file_format=False)
             temp_path = temp.name
         
         try:

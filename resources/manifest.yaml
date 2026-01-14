@@ -1,0 +1,23 @@
+resources:
+  - id: "orthanc-openapi"
+    name: "Orthanc REST API (OpenAPI)"
+    description: "Official Swagger/OpenAPI definition for Orthanc's REST interface."
+    filename: "orthanc-openapi.json"
+    media_type: "application/json"
+    tags: ["orthanc", "openapi", "reference"]
+    homepage: "https://orthanc.uclouvain.be/api/"
+
+  - id: "fhir-r4-spec"
+    name: "HL7 FHIR Release 4 Specification"
+    description: "Canonical HL7 FHIR R4 (4.0.x) specification landing page and documentation."
+    media_type: "text/html"
+    tags: ["fhir", "hl7", "reference"]
+    homepage: "https://hl7.org/fhir/R4/"
+
+  - id: "fhir-r5-spec"
+    name: "HL7 FHIR Release 5 Specification"
+    description: "Latest HL7 FHIR R5 (5.0.0) specification with resource definitions and REST API details."
+    media_type: "text/html"
+    tags: ["fhir", "hl7", "reference"]
+    homepage: "https://hl7.org/fhir/R5/"
+

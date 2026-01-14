@@ -140,6 +140,147 @@ class MiniRisClient:
             },
         }
 
+    def list_orders(
+        self,
+        *,
+        mrn: Optional[str] = None,
+        status: Optional[str] = None,
+        accession_number: Optional[str] = None,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Return a filtered list of orders from the mini-RIS schema.
+        
+        Args:
+            mrn: Filter by patient MRN
+            status: Filter by order status (Requested, Scheduled, InProgress, Completed, Cancelled)
+            accession_number: Filter by accession number
+            limit: Maximum number of rows to return (1-100)
+            offset: Pagination offset
+            
+        Returns:
+            Dictionary with orders list and metadata
+        """
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        
+        filters: List[str] = []
+        params: List[Any] = []
+        
+        if mrn:
+            filters.append("p.mrn = %s")
+            params.append(mrn)
+        
+        if status:
+            filters.append("o.status = %s")
+            params.append(status)
+        
+        if accession_number:
+            filters.append("o.accession_number = %s")
+            params.append(accession_number)
+        
+        where_clause = " WHERE " + " AND ".join(filters) if filters else ""
+        
+        sql = f"""
+            SELECT
+                o.order_id,
+                o.order_number,
+                o.accession_number,
+                o.patient_id,
+                p.mrn,
+                p.given_name,
+                p.family_name,
+                o.modality_code,
+                o.status,
+                o.priority,
+                o.order_datetime,
+                o.scheduled_start,
+                o.reason_description,
+                o.created_at,
+                o.updated_at
+            FROM orders o
+            INNER JOIN patients p ON o.patient_id = p.patient_id
+            {where_clause}
+            ORDER BY o.order_datetime DESC
+            LIMIT %s OFFSET %s
+        """
+        
+        params.extend([limit, offset])
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+            cursor.close()
+        
+        return {
+            "success": True,
+            "count": len(rows),
+            "orders": rows,
+            "limit": limit,
+            "offset": offset,
+            "filters": {
+                "mrn": mrn,
+                "status": status,
+                "accession_number": accession_number,
+            },
+        }
+
+    def create_mwl_task(
+        self,
+        order_id: int,
+        scheduled_station_aet: str,
+        scheduled_start: datetime,
+        mwl_payload: Dict[str, Any],
+        scheduled_station_name: Optional[str] = None,
+        scheduled_end: Optional[datetime] = None,
+        scheduled_performing_provider_id: Optional[int] = None,
+    ) -> int:
+        """Create an MWL task record when MWL is created from an order.
+        
+        Args:
+            order_id: The order ID
+            scheduled_station_aet: AE Title of the scheduled station
+            scheduled_station_name: Optional name of the scheduled station
+            scheduled_start: Scheduled start datetime
+            scheduled_end: Optional scheduled end datetime
+            scheduled_performing_provider_id: Optional performing provider ID
+            mwl_payload: The MWL payload JSON
+            
+        Returns:
+            The created mwl_task_id
+        """
+        import json
+        
+        sql = """
+            INSERT INTO mwl_tasks (
+                order_id, scheduled_station_aet, scheduled_station_name,
+                scheduled_start, scheduled_end, scheduled_performing_provider_id,
+                status, mwl_payload
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                sql,
+                (
+                    order_id,
+                    scheduled_station_aet,
+                    scheduled_station_name,
+                    scheduled_start,
+                    scheduled_end,
+                    scheduled_performing_provider_id,
+                    'Scheduled',  # Initial status
+                    json.dumps(mwl_payload),
+                ),
+            )
+            mwl_task_id = cursor.lastrowid
+            conn.commit()
+            cursor.close()
+        
+        return mwl_task_id
+
     def get_order_for_mwl(self, order_id: int) -> Optional[Dict[str, Any]]:
         """Fetch order data with all related information needed for MWL creation.
         
@@ -156,9 +297,11 @@ class MiniRisClient:
                 o.accession_number,
                 o.modality_code,
                 o.scheduled_start,
+                o.scheduled_end,
                 o.status AS order_status,
                 o.priority,
                 o.reason_description,
+                o.performing_provider_id,
                 p.patient_id,
                 p.mrn,
                 p.given_name,
