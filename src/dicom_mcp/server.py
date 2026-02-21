@@ -3,6 +3,7 @@ DICOM MCP Server main implementation.
 """
 
 import base64
+import json
 import logging
 import os
 import requests
@@ -11,7 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, AsyncIterator, Optional, Tuple
+from typing import Dict, List, Any, AsyncIterator, Optional, Tuple, Union
 
 from mcp.server.fastmcp import FastMCP, Context
 try:
@@ -1123,14 +1124,14 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
     @mcp.tool()
     def fhir_search_resource(
         type: str,
-        searchParam: Optional[Dict[str, Any]] = None,
+        searchParam: Optional[Union[Dict[str, Any], str]] = None,
         ctx: Context = None
     ) -> Dict[str, Any]:
         """Search any FHIR resource type with arbitrary search parameters.
         
         Args:
             type: The FHIR resource type (e.g., "Patient", "Observation", "ImagingStudy")
-            searchParam: Search parameters as dictionary, e.g., {"name": "Smith", "birthdate": "1990-01-01"}
+            searchParam: Search parameters as dictionary or JSON string, e.g. {"patient": "Patient/123"} or {"name": "Smith", "birthdate": "1990-01-01"}
         
         Returns:
             FHIR Bundle resource containing search results.
@@ -1138,8 +1139,19 @@ def create_dicom_mcp_server(config_path: str, name: str = "DICOM MCP") -> FastMC
         dicom_ctx = ctx.request_context.lifespan_context
         if not dicom_ctx.fhir_client:
             raise ValueError("FHIR server is not configured. Add 'fhir_servers' section to configuration.yaml")
+        # Normalize searchParam: MCP clients may send a JSON string instead of a dict
+        params = searchParam
+        if params is None:
+            params = {}
+        elif isinstance(params, str):
+            try:
+                params = json.loads(params) if params.strip() else {}
+            except json.JSONDecodeError as e:
+                raise ValueError(f"searchParam must be a valid JSON object: {e}") from e
+        if not isinstance(params, dict):
+            raise ValueError("searchParam must be a dictionary or JSON string")
         try:
-            return dicom_ctx.fhir_client.search_resource(type, searchParam or {})
+            return dicom_ctx.fhir_client.search_resource(type, params)
         except Exception as e:
             raise Exception(f"Error searching FHIR resource {type}: {str(e)}")
 

@@ -21,3 +21,11 @@ resources:
     tags: ["fhir", "hl7", "reference"]
     homepage: "https://hl7.org/fhir/R5/"
 
+  # MCP UI Components
+  - id: "patient-query-ui"
+    name: "Patient Query UI"
+    description: "Interactive UI component for querying DICOM patients"
+    filename: "../src/dicom_mcp/ui_components/patient-query.html"
+    media_type: "application/vnd.mcp.ui"
+    tags: ["ui", "dicom", "patient", "query"]
+

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>DICOM Patient Query - dicom-mcp</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      background: #0d1117; 
+      color: #e6edf3; 
+      padding: 16px; 
+    }
+    .header { 
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between;
+      margin-bottom: 16px; 
+      padding-bottom: 12px; 
+      border-bottom: 2px solid #30363d; 
+    }
+    .header h1 { font-size: 20px; font-weight: 700; color: #58a6ff; }
+    .search-form {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #8b949e;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e6edf3;
+      font-size: 14px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      width: 100%;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    button:disabled {
+      background: #30363d;
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+    .results {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .patient-card {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 8px;
+      transition: border-color 0.2s;
+    }
+    .patient-card:hover {
+      border-color: #58a6ff;
+    }
+    .patient-name {
+      font-weight: 600;
+      color: #58a6ff;
+      margin-bottom: 4px;
+      font-size: 15px;
+    }
+    .patient-details {
+      font-size: 13px;
+      color: #8b949e;
+      line-height: 1.6;
+    }
+    .patient-details strong {
+      color: #e6edf3;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #8b949e;
+    }
+    .error {
+      background: #da3633;
+      color: white;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #8b949e;
+    }
+    .info-text {
+      font-size: 12px;
+      color: #8b949e;
+      margin-top: 8px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🔍 DICOM Patient Query</h1>
+  </div>
+  
+  <div class="search-form">
+    <div class="form-group">
+      <label for="name-pattern">Patient Name Pattern</label>
+      <input type="text" id="name-pattern" placeholder="e.g., SMITH* or *JOHN*" />
+      <div class="info-text">Use * for wildcards (e.g., SMITH* finds all Smith patients)</div>
+    </div>
+    <div class="form-group">
+      <label for="patient-id">Patient ID</label>
+      <input type="text" id="patient-id" placeholder="e.g., 12345678" />
+    </div>
+    <div class="form-group">
+      <label for="birth-date">Birth Date (YYYYMMDD)</label>
+      <input type="text" id="birth-date" placeholder="e.g., 19700101" maxlength="8" />
+    </div>
+    <button id="search-btn">Search Patients</button>
+  </div>
+
+  <div id="error-container"></div>
+  <div id="results-container" class="results">
+    <div class="empty-state">Enter search criteria above and click "Search Patients" to query DICOM server</div>
+  </div>
+
+  <script>
+    // Simple implementation that works with MCP tool calls
+    // In MCP Jam or Claude Desktop, this will be enhanced with MCP SDK
+    
+    const searchBtn = document.getElementById('search-btn');
+    const namePattern = document.getElementById('name-pattern');
+    const patientId = document.getElementById('patient-id');
+    const birthDate = document.getElementById('birth-date');
+    const resultsContainer = document.getElementById('results-container');
+    const errorContainer = document.getElementById('error-container');
+
+    function renderPatients(patients) {
+      if (!patients || patients.length === 0) {
+        resultsContainer.innerHTML = '<div class="empty-state">No patients found matching your criteria</div>';
+        return;
+      }
+
+      const html = patients.map(patient => {
+        const name = patient.PatientName || patient['Patient Name'] || 'Unknown';
+        const pid = patient.PatientID || patient['Patient ID'] || 'N/A';
+        const dob = patient.PatientBirthDate || patient['Patient Birth Date'] || 'N/A';
+        const sex = patient.PatientSex || patient['Patient Sex'] || 'N/A';
+        
+        return `
+          <div class="patient-card">
+            <div class="patient-name">${name}</div>
+            <div class="patient-details">
+              <strong>Patient ID:</strong> ${pid}<br>
+              <strong>Birth Date:</strong> ${dob}<br>
+              <strong>Sex:</strong> ${sex}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      resultsContainer.innerHTML = html;
+    }
+
+    function showError(message) {
+      errorContainer.innerHTML = `<div class="error">Error: ${message}</div>`;
+      setTimeout(() => {
+        errorContainer.innerHTML = '';
+      }, 5000);
+    }
+
+    searchBtn.addEventListener('click', async () => {
+      errorContainer.innerHTML = '';
+      resultsContainer.innerHTML = '<div class="loading">Searching DICOM server...</div>';
+      searchBtn.disabled = true;
+
+      try {
+        // This is a placeholder - in MCP Jam/Claude Desktop, the MCP SDK
+        // will handle tool calls automatically
+        const params = {
+          name_pattern: namePattern.value.trim() || '',
+          patient_id: patientId.value.trim() || '',
+          birth_date: birthDate.value.trim() || '',
+          attribute_preset: 'standard'
+        };
+
+        // Check if we're in an MCP environment
+        if (typeof window !== 'undefined' && window.mcpApp) {
+          // MCP SDK available
+          const result = await window.mcpApp.callServerTool({
+            name: 'query_patients',
+            arguments: params
+          });
+          
+          const data = JSON.parse(result.content[0].text);
+          renderPatients(data.result || []);
+        } else {
+          // Fallback: Show example data structure
+          resultsContainer.innerHTML = `
+            <div class="patient-card">
+              <div class="patient-name">SMITH^JOHN</div>
+              <div class="patient-details">
+                <strong>Patient ID:</strong> 12345<br>
+                <strong>Birth Date:</strong> 19700101<br>
+                <strong>Sex:</strong> M
+              </div>
+            </div>
+            <div class="info-text" style="margin-top: 16px;">
+              Note: This is example data. In MCP Jam or Claude Desktop, this UI will call the actual query_patients tool.
+            </div>
+          `;
+        }
+      } catch (error) {
+        showError(error.message || 'Failed to search patients');
+        resultsContainer.innerHTML = '<div class="empty-state">Search failed. Please try again.</div>';
+      } finally {
+        searchBtn.disabled = false;
+      }
+    });
+
+    // Allow Enter key to trigger search
+    [namePattern, patientId, birthDate].forEach(input => {
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !searchBtn.disabled) {
+          searchBtn.click();
+        }
+      });
+    });
+  </script>
+</body>
+</html>
